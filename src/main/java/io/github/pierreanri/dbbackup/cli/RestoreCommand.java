@@ -58,6 +58,11 @@ class RestoreCommand extends BaseCommand {
             description = "Restore into this database (SQLite: file) instead of the profile's.")
     String targetDatabase;
 
+    @Option(names = "--target-dir", paramLabel = "DIR",
+            description = "Directory receiving a physical backup (PostgreSQL with 'incremental: true'). "
+                    + "It must not exist or be empty.")
+    Path targetDir;
+
     @Option(names = {"-t", "--tables"}, split = ",", paramLabel = "TABLE",
             description = "Only restore these tables/collections (PostgreSQL, MongoDB, SQLite).")
     List<String> tables = new ArrayList<>();
@@ -114,11 +119,14 @@ class RestoreCommand extends BaseCommand {
             return FAILED;
         }
         RestoreResult result = service.restore(new RestoreJob(target, storage,
-                manifest != null ? manifest.id() : null, file, targetDatabase, tables, clean, !noVerify, identities,
-                "cli"));
+                manifest != null ? manifest.id() : null, file, targetDatabase, targetDir, tables, clean, !noVerify,
+                identities, "cli"));
         out().printf("Restored %s into %s in %s%n",
                 result.manifest() != null ? result.manifest().id() : result.source(),
                 describeTarget(target), FileUtils.humanDuration(result.durationMillis()));
+        if (result.chain().size() > 1) {
+            out().printf("  applied:   %s%n", String.join(" -> ", result.chain()));
+        }
         out().flush();
         return OK;
     }
@@ -139,6 +147,9 @@ class RestoreCommand extends BaseCommand {
     }
 
     private String describeTarget(DatabaseConfig target) {
+        if (targetDir != null) {
+            return "directory " + targetDir.toAbsolutePath();
+        }
         if (targetDatabase != null) {
             return target.name() + " (" + (target.type() == DatabaseType.SQLITE ? "file " : "database ")
                     + targetDatabase + ")";
@@ -148,8 +159,8 @@ class RestoreCommand extends BaseCommand {
 
     private boolean confirm(DatabaseConfig target, BackupManifest manifest, String storage) throws IOException {
         String what = manifest != null
-                ? manifest.id() + " (" + Formats.time(manifest.createdAt()) + ", " + FileUtils.humanSize(manifest.sizeBytes())
-                        + (storage != null ? ", from " + storage : "") + ")"
+                ? manifest.id() + " (" + manifest.backupType() + ", " + Formats.time(manifest.createdAt()) + ", "
+                        + FileUtils.humanSize(manifest.sizeBytes()) + (storage != null ? ", from " + storage : "") + ")"
                 : file.toString();
         String scope = tables.isEmpty() ? "" : " (tables: " + String.join(", ", tables) + ")";
         out().printf("Restoring %s%n     into %s%s%n", what, describeTarget(target), scope);

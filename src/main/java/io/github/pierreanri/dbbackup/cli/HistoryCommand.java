@@ -55,9 +55,10 @@ class HistoryCommand extends BaseCommand {
         } else {
             List<List<String>> rows = new ArrayList<>();
             for (ActivityEntry e : entries) {
-                String details = e.status() == Status.SUCCESS
-                        ? (e.backupId() != null ? e.backupId() : e.message() != null ? e.message() : "")
-                        : e.message();
+                String details = e.status() != Status.SUCCESS ? e.message()
+                        : e.backupId() == null ? (e.message() != null ? e.message() : "")
+                        : e.backupId() + (e.message() != null && e.operation() == ActivityEntry.Operation.BACKUP
+                                ? " (" + e.message() + ")" : "");
                 rows.add(List.of(Formats.time(e.timestamp()), e.operation().name().toLowerCase(Locale.ROOT),
                         String.valueOf(e.database()), e.status().name(),
                         e.sizeBytes() == null ? "-" : FileUtils.humanSize(e.sizeBytes()),

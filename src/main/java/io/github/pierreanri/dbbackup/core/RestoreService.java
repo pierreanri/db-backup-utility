@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -21,6 +22,7 @@ import io.github.pierreanri.dbbackup.crypto.AgeCrypto;
 import io.github.pierreanri.dbbackup.db.DatabaseAdapter;
 import io.github.pierreanri.dbbackup.db.DatabaseAdapters;
 import io.github.pierreanri.dbbackup.db.DatabaseType;
+import io.github.pierreanri.dbbackup.db.DumpResult;
 import io.github.pierreanri.dbbackup.db.RestoreRequest;
 import io.github.pierreanri.dbbackup.logging.ActivityEntry;
 import io.github.pierreanri.dbbackup.logging.ActivityEntry.Operation;
@@ -33,8 +35,9 @@ import io.github.pierreanri.dbbackup.util.HostInfo;
 import io.github.pierreanri.dbbackup.util.Mappers;
 
 /**
- * Restores a backup: locate, download, verify the checksum, decompress and hand over to the
- * database adapter.
+ * Restores a backup: locate it (and, for incremental and differential backups, the backups it
+ * depends on), download, verify the checksums, decrypt, decompress and hand over to the database
+ * adapter.
  */
 public class RestoreService {
 
@@ -67,6 +70,10 @@ public class RestoreService {
                         + (database != null ? " for database '" + database + "'" : "")));
     }
 
+    /** One backup of the chain being restored. */
+    private record Link(BackupManifest manifest, Path file) {
+    }
+
     public RestoreResult restore(RestoreJob job) {
         DatabaseConfig db = job.target();
         Instant start = clock.instant();
@@ -78,74 +85,59 @@ public class RestoreService {
             if (!job.tables().isEmpty() && !adapter.supportsSelectiveRestore()) {
                 throw new DbBackupException(db.type() + " backups cannot be restored table by table");
             }
-            if (db.type() != DatabaseType.SQLITE) {
-                LOG.info("Checking connection to {}", db.describe());
-                adapter.testConnection(db);
-            }
-
             Files.createDirectories(workDir);
             runDir = Files.createTempDirectory(workDir, "restore-");
-            Path file;
-            Compression compression;
+
+            List<Link> chain;
+            StorageBackend storage = null;
             if (job.localFile() != null) {
-                file = job.localFile();
+                Path file = job.localFile();
                 if (!Files.isRegularFile(file)) {
                     throw new DbBackupException("Backup file not found: " + file);
                 }
                 source = file.toAbsolutePath().toString();
-                manifest = siblingManifest(file);
-                String name = file.getFileName().toString();
-                if (name.endsWith(AgeCrypto.EXTENSION)) {
-                    name = name.substring(0, name.length() - AgeCrypto.EXTENSION.length());
-                }
-                compression = manifest != null ? manifest.compression() : Compression.fromFileName(name);
+                chain = localChain(file);
+                manifest = chain.get(chain.size() - 1).manifest();
             } else {
-                StorageBackend storage = storages.get(job.storage());
+                storage = storages.get(job.storage());
                 manifest = locate(job.storage(), job.backupId(), db.name());
                 source = storage.location(manifest.backupKey());
-                file = runDir.resolve(manifest.fileName());
-                LOG.info("Downloading {} ({})", source, FileUtils.humanSize(manifest.sizeBytes()));
-                storage.download(manifest.backupKey(), file);
-                compression = manifest.compression();
-            }
-
-            if (manifest != null) {
-                checkCompatible(manifest, db);
-                if (job.verify()) {
-                    String actual = Checksums.sha256(file);
-                    if (!actual.equalsIgnoreCase(manifest.sha256())) {
-                        throw new DbBackupException("Checksum mismatch for " + manifest.fileName() + ": expected "
-                                + manifest.sha256() + ", got " + actual + ". The backup is corrupted.");
-                    }
-                    LOG.info("Checksum verified");
+                chain = new ArrayList<>();
+                for (BackupManifest link : new BackupCatalog(storage).chain(manifest)) {
+                    chain.add(new Link(link, null));
                 }
             }
-
-            boolean encrypted = manifest != null ? manifest.encrypted() : AgeCrypto.isEncrypted(file);
-            if (encrypted) {
-                String name = file.getFileName().toString();
-                Path decrypted = runDir.resolve(name.endsWith(AgeCrypto.EXTENSION)
-                        ? name.substring(0, name.length() - AgeCrypto.EXTENSION.length()) : name + ".decrypted");
-                LOG.info("Decrypting (age)");
-                AgeCrypto.decrypt(file, decrypted, AgeCrypto.identities(encryption, job.identityFiles()),
-                        encryption.passphrase());
-                file = decrypted;
+            for (Link link : chain) {
+                if (link.manifest() != null) {
+                    checkCompatible(link.manifest(), db);
+                }
+            }
+            boolean physical = manifest != null && DumpResult.PHYSICAL.equals(manifest.method());
+            if (physical && job.targetDirectory() == null) {
+                throw new DbBackupException("Backup " + manifest.id() + " is a physical backup: restore it into a "
+                        + "directory with --target-dir");
+            }
+            if (db.type() != DatabaseType.SQLITE && !physical) {
+                LOG.info("Checking connection to {}", db.describe());
+                adapter.testConnection(db);
+            }
+            if (chain.size() > 1) {
+                LOG.info("Restoring a chain of {} backups: {}", chain.size(),
+                        String.join(" -> ", chain.stream().map(l -> l.manifest().id()).toList()));
             }
 
-            Path raw = file;
-            if (compression != Compression.NONE) {
-                raw = runDir.resolve(compression.stripExtension(file.getFileName().toString()));
-                if (raw.equals(file)) {
-                    raw = runDir.resolve("dump.raw");
-                }
-                LOG.info("Decompressing ({})", compression);
-                Compressor.decompress(file, raw, compression);
+            List<Path> raws = new ArrayList<>();
+            for (int i = 0; i < chain.size(); i++) {
+                raws.add(prepare(chain.get(i), storage, runDir.resolve(String.format("%03d", i)), job));
             }
 
             String sourceDatabase = manifest != null ? manifest.databaseName() : db.database();
-            adapter.restore(new RestoreRequest(db, job.targetDatabase(), sourceDatabase, job.tables(), job.clean()), raw);
+            RestoreRequest request = new RestoreRequest(db, job.targetDatabase(), sourceDatabase, job.tables(),
+                    job.clean(), job.targetDirectory());
+            adapter.restoreChain(request, raws.get(0), raws.subList(1, raws.size()));
 
-            RestoreResult result = new RestoreResult(manifest, source, clock.millis() - start.toEpochMilli());
+            RestoreResult result = new RestoreResult(manifest, source, clock.millis() - start.toEpochMilli(),
+                    chain.stream().filter(l -> l.manifest() != null).map(l -> l.manifest().id()).toList());
             record(db, manifest, source, start, job, null);
             return result;
         } catch (IOException e) {
@@ -160,6 +152,52 @@ public class RestoreService {
         }
     }
 
+    /** Downloads (if needed), verifies, decrypts and decompresses one backup; returns the raw dump. */
+    private Path prepare(Link link, StorageBackend storage, Path dir, RestoreJob job) throws IOException {
+        Files.createDirectories(dir);
+        BackupManifest manifest = link.manifest();
+        Path file = link.file();
+        if (file == null) {
+            file = dir.resolve(manifest.fileName());
+            LOG.info("Downloading {} ({})", storage.location(manifest.backupKey()),
+                    FileUtils.humanSize(manifest.sizeBytes()));
+            storage.download(manifest.backupKey(), file);
+        }
+        String name = file.getFileName().toString();
+        if (manifest != null && job.verify()) {
+            String actual = Checksums.sha256(file);
+            if (!actual.equalsIgnoreCase(manifest.sha256())) {
+                throw new DbBackupException("Checksum mismatch for " + manifest.fileName() + ": expected "
+                        + manifest.sha256() + ", got " + actual + ". The backup is corrupted.");
+            }
+            LOG.info("Checksum of {} verified", manifest.id());
+        }
+
+        boolean encrypted = manifest != null ? manifest.encrypted() : AgeCrypto.isEncrypted(file);
+        if (encrypted) {
+            String plainName = name.endsWith(AgeCrypto.EXTENSION)
+                    ? name.substring(0, name.length() - AgeCrypto.EXTENSION.length()) : name + ".decrypted";
+            Path decrypted = dir.resolve(plainName);
+            LOG.info("Decrypting {} (age)", name);
+            AgeCrypto.decrypt(file, decrypted, AgeCrypto.identities(encryption, job.identityFiles()),
+                    encryption.passphrase());
+            file = decrypted;
+            name = plainName;
+        }
+
+        Compression compression = manifest != null ? manifest.compression() : Compression.fromFileName(name);
+        if (compression == Compression.NONE) {
+            return file;
+        }
+        Path raw = dir.resolve(compression.stripExtension(name));
+        if (raw.equals(file)) {
+            raw = dir.resolve("dump.raw");
+        }
+        LOG.info("Decompressing {} ({})", name, compression);
+        Compressor.decompress(file, raw, compression);
+        return raw;
+    }
+
     private static void checkCompatible(BackupManifest manifest, DatabaseConfig db) {
         DatabaseType from = manifest.databaseType();
         DatabaseType to = db.type();
@@ -171,31 +209,46 @@ public class RestoreService {
         }
     }
 
-    /** Finds the manifest describing a local backup file, if it sits next to it. */
-    private static BackupManifest siblingManifest(Path file) {
+    /**
+     * A local backup file and, when its manifest sits next to it and it is incremental or
+     * differential, the files of the backups it depends on (expected in the same directory).
+     */
+    private static List<Link> localChain(Path file) {
         Path dir = file.toAbsolutePath().getParent();
         String name = file.getFileName().toString();
-        try (DirectoryStream<Path> manifests = Files.newDirectoryStream(dir, "*" + BackupNaming.MANIFEST_SUFFIX)) {
-            for (Path candidate : manifests) {
+        List<BackupManifest> manifests = new ArrayList<>();
+        try (DirectoryStream<Path> candidates = Files.newDirectoryStream(dir, "*" + BackupNaming.MANIFEST_SUFFIX)) {
+            for (Path candidate : candidates) {
                 try {
-                    BackupManifest manifest = Mappers.json().readValue(candidate.toFile(), BackupManifest.class);
-                    if (name.equals(manifest.fileName())) {
-                        LOG.info("Using manifest {}", candidate.getFileName());
-                        return manifest;
-                    }
+                    manifests.add(Mappers.json().readValue(candidate.toFile(), BackupManifest.class));
                 } catch (IOException e) {
                     LOG.debug("Ignoring unreadable manifest {}", candidate);
                 }
             }
         } catch (IOException e) {
-            LOG.debug("Cannot look for a manifest next to {}: {}", file, e.getMessage());
+            LOG.debug("Cannot look for manifests next to {}: {}", file, e.getMessage());
         }
-        return null;
+        BackupManifest own = manifests.stream().filter(m -> name.equals(m.fileName())).findFirst().orElse(null);
+        if (own == null) {
+            return List.of(new Link(null, file));
+        }
+        LOG.info("Using manifest {}{}", own.manifestKey().substring(own.database().length() + 1),
+                own.isFull() ? "" : " (" + own.backupType() + " backup)");
+        List<Link> chain = new ArrayList<>();
+        for (BackupManifest link : BackupCatalog.resolveChain(own, manifests, dir.toString())) {
+            Path linkFile = dir.resolve(link.fileName());
+            if (!Files.isRegularFile(linkFile)) {
+                throw new DbBackupException("Backup file " + linkFile + " needed to restore " + own.id() + " is missing");
+            }
+            chain.add(new Link(link, linkFile));
+        }
+        return chain;
     }
 
     private void record(DatabaseConfig db, BackupManifest manifest, String source, Instant start, RestoreJob job,
             Exception error) {
-        String target = job.targetDatabase() != null ? job.targetDatabase()
+        String target = job.targetDirectory() != null ? job.targetDirectory().toString()
+                : job.targetDatabase() != null ? job.targetDatabase()
                 : db.type() == DatabaseType.SQLITE ? db.file() : db.database();
         String message = error != null ? error.getMessage() : "restored into " + target;
         ActivityEntry entry = new ActivityEntry(start, Operation.RESTORE, error == null ? Status.SUCCESS : Status.FAILED,

@@ -69,7 +69,7 @@ class ScheduleCommand implements Runnable {
         Compression compression = Compression.fromName(schedule.compression() != null ? schedule.compression()
                 : config.defaults().compression());
         BackupJob job = new BackupJob(config.database(schedule.database()), storage.resolve(ctx, false), compression,
-                schedule.scope(), schedule.tables(), schedule.retention(), true, "schedule:" + schedule.name());
+                schedule.type(), schedule.scope(), schedule.tables(), schedule.retention(), true, "schedule:" + schedule.name());
         BackupResult result = ctx.backupService().backup(job);
         LOG.info("Scheduled backup {} {} in {}", result.manifest().id(),
                 result.success() ? "completed" : "partially failed", FileUtils.humanDuration(result.durationMillis()));
@@ -95,11 +95,12 @@ class ScheduleCommand implements Runnable {
                         ? job.schedule().next(ctx().clock().instant().atZone(job.schedule().zone()))
                                 .map(t -> Formats.time(t.toInstant())).orElse("never")
                         : "-";
-                rows.add(List.of(schedule.name(), schedule.database(), schedule.cron(), job.schedule().zone().getId(),
+                rows.add(List.of(schedule.name(), schedule.database(), schedule.type().id(), schedule.cron(),
+                        job.schedule().zone().getId(),
                         next, schedule.storage().isEmpty() ? "(default)" : String.join(",", schedule.storage()),
                         schedule.isEnabled() ? "yes" : "no"));
             }
-            Formats.table(out(), List.of("NAME", "DATABASE", "CRON", "TIME ZONE", "NEXT RUN", "STORAGE", "ENABLED"),
+            Formats.table(out(), List.of("NAME", "DATABASE", "TYPE", "CRON", "TIME ZONE", "NEXT RUN", "STORAGE", "ENABLED"),
                     rows);
             return OK;
         }

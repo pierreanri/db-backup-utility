@@ -3,6 +3,7 @@ package io.github.pierreanri.dbbackup.config;
 import java.util.List;
 
 import io.github.pierreanri.dbbackup.db.BackupScope;
+import io.github.pierreanri.dbbackup.db.BackupType;
 
 /**
  * A recurring backup job ({@code schedules[]} in the config file).
@@ -12,6 +13,7 @@ import io.github.pierreanri.dbbackup.db.BackupScope;
  * @param cron        5-field cron expression or a macro such as {@code @daily}
  * @param storage     storage targets; the defaults are used when empty
  * @param compression compression algorithm; the default is used when unset
+ * @param type        full (default), incremental or differential
  * @param scope       full (default), schema-only or data-only
  * @param tables      only back up these tables/collections
  * @param retention   retention override for this job
@@ -24,6 +26,7 @@ public record ScheduleConfig(
         String cron,
         List<String> storage,
         String compression,
+        BackupType type,
         BackupScope scope,
         List<String> tables,
         RetentionConfig retention,
@@ -34,6 +37,7 @@ public record ScheduleConfig(
         storage = storage == null ? List.of() : List.copyOf(storage);
         tables = tables == null ? List.of() : List.copyOf(tables);
         scope = scope == null ? BackupScope.FULL : scope;
+        type = type == null ? BackupType.FULL : type;
     }
 
     public boolean isEnabled() {

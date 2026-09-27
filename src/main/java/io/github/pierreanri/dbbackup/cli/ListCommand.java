@@ -8,6 +8,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 
 import io.github.pierreanri.dbbackup.core.BackupCatalog;
 import io.github.pierreanri.dbbackup.core.BackupManifest;
+import io.github.pierreanri.dbbackup.db.DumpResult;
 import io.github.pierreanri.dbbackup.util.FileUtils;
 import io.github.pierreanri.dbbackup.util.Mappers;
 import picocli.CommandLine.Command;
@@ -60,13 +61,15 @@ class ListCommand extends BaseCommand {
             List<List<String>> rows = new ArrayList<>();
             for (Entry entry : entries) {
                 BackupManifest m = entry.manifest();
-                rows.add(List.of(m.id(), m.database(), m.databaseType().id(), Formats.time(m.createdAt()),
-                        FileUtils.humanSize(m.sizeBytes()),
-                        m.compression().id() + (m.encrypted() ? "+" + m.encryption() : ""), m.scope().id()
+                String kind = m.backupType().shortName() + (m.isFull() ? "" : " <- " + m.parentId());
+                String format = (DumpResult.PHYSICAL.equals(m.method()) ? "physical, " : "") + m.compression().id()
+                        + (m.encrypted() ? "+" + m.encryption() : "");
+                rows.add(List.of(m.id(), m.database(), m.databaseType().id(), kind, Formats.time(m.createdAt()),
+                        FileUtils.humanSize(m.sizeBytes()), format, m.scope().id()
                                 + (m.tables().isEmpty() ? "" : " (" + String.join(",", m.tables()) + ")"),
                         entry.storage()));
             }
-            Formats.table(out(), List.of("ID", "DATABASE", "TYPE", "CREATED", "SIZE", "COMPRESSION", "SCOPE",
+            Formats.table(out(), List.of("ID", "DATABASE", "ENGINE", "BACKUP", "CREATED", "SIZE", "FORMAT", "SCOPE",
                     "STORAGE"), rows);
         }
         out().flush();

@@ -36,8 +36,12 @@ import io.github.pierreanri.dbbackup.config.LocalStorageConfig;
 import io.github.pierreanri.dbbackup.config.RetentionConfig;
 import io.github.pierreanri.dbbackup.config.StorageConfig;
 import io.github.pierreanri.dbbackup.db.BackupScope;
+import io.github.pierreanri.dbbackup.db.BackupType;
 import io.github.pierreanri.dbbackup.db.DatabaseAdapters;
 import io.github.pierreanri.dbbackup.db.DatabaseType;
+import io.github.pierreanri.dbbackup.db.ProcessResult;
+import io.github.pierreanri.dbbackup.db.ProcessRunner;
+import io.github.pierreanri.dbbackup.db.ProcessSpec;
 import io.github.pierreanri.dbbackup.logging.ActivityEntry;
 import io.github.pierreanri.dbbackup.logging.ActivityEntry.Operation;
 import io.github.pierreanri.dbbackup.logging.ActivityEntry.Status;
@@ -92,7 +96,8 @@ class BackupServiceTest {
     }
 
     private BackupJob job(String... storage) {
-        return new BackupJob(db, List.of(storage), Compression.GZIP, BackupScope.FULL, List.of(), null, true, "cli");
+        return new BackupJob(db, List.of(storage), Compression.GZIP, BackupType.FULL, BackupScope.FULL, List.of(),
+                null, true, "cli");
     }
 
     @Test
@@ -190,7 +195,8 @@ class BackupServiceTest {
 
     @Test
     void restoresSelectedTablesIntoAnotherFileById() throws SQLException {
-        String id = backups.backup(new BackupJob(db, List.of("primary"), Compression.XZ, BackupScope.FULL, List.of(),
+        String id = backups.backup(new BackupJob(db, List.of("primary"), Compression.XZ, BackupType.FULL,
+                BackupScope.FULL, List.of(),
                 null, false, "cli")).manifest().id();
         Path copy = tmp.resolve("copy.db");
 
@@ -207,7 +213,8 @@ class BackupServiceTest {
 
     @Test
     void restoresLocalFileUsingItsManifest() throws SQLException {
-        backups.backup(new BackupJob(db, List.of("primary"), Compression.BZIP2, BackupScope.FULL, List.of(), null,
+        backups.backup(new BackupJob(db, List.of("primary"), Compression.BZIP2, BackupType.FULL, BackupScope.FULL,
+                List.of(), null,
                 false, "cli"));
         sql("DELETE FROM users");
         Path file = tmp.resolve("primary/app/app-20260901T020000Z.db.bz2");
@@ -238,10 +245,10 @@ class BackupServiceTest {
     void refusesIncompatibleDatabaseTypes() {
         backups.backup(job("primary"));
         DatabaseConfig postgres = DatabaseConfig.of("app", DatabaseType.POSTGRESQL).withDatabase("app");
-        RestoreService offline = new RestoreService(new DatabaseAdapters(new io.github.pierreanri.dbbackup.db.ProcessRunner() {
+        RestoreService offline = new RestoreService(new DatabaseAdapters(new ProcessRunner() {
             @Override
-            public io.github.pierreanri.dbbackup.db.ProcessResult run(io.github.pierreanri.dbbackup.db.ProcessSpec spec) {
-                return new io.github.pierreanri.dbbackup.db.ProcessResult(0, "PostgreSQL 16", "");
+            public ProcessResult run(ProcessSpec spec) {
+                return new ProcessResult(0, "PostgreSQL 16", "");
             }
         }), storages, null, activityLog, notifications::add, tmp.resolve("work"), clock);
 
@@ -303,7 +310,7 @@ class BackupServiceTest {
                 passphrase);
         new BackupService(encrypted, new DatabaseAdapters(), storages, activityLog, notifications::add,
                 tmp.resolve("work"), clock).backup(new BackupJob(db, List.of("primary"), Compression.NONE,
-                BackupScope.FULL, List.of(), null, false, "cli"));
+                BackupType.FULL, BackupScope.FULL, List.of(), null, false, "cli"));
         sql("DELETE FROM users");
 
         new RestoreService(new DatabaseAdapters(), storages, passphrase, activityLog, notifications::add,
@@ -316,8 +323,8 @@ class BackupServiceTest {
     @Test
     void pruneDryRunKeepsFiles() {
         for (int i = 0; i < 3; i++) {
-            backups.backup(new BackupJob(db, List.of("primary"), Compression.NONE, BackupScope.FULL, List.of(), null,
-                    false, "cli"));
+            backups.backup(new BackupJob(db, List.of("primary"), Compression.NONE, BackupType.FULL,
+                    BackupScope.FULL, List.of(), null, false, "cli"));
             clock.advance(Duration.ofDays(1));
         }
         StorageBackend primary = storages.get("primary");
@@ -333,7 +340,8 @@ class BackupServiceTest {
     void resolvesRetentionPrecedence() {
         assertThat(backups.retentionFor("secondary", null)).isEqualTo(new RetentionConfig(1, null));
         assertThat(backups.retentionFor("primary", null)).isEqualTo(new RetentionConfig(3, null));
-        assertThat(backups.retentionFor("secondary", new RetentionConfig(null, 9))).isEqualTo(new RetentionConfig(null, 9));
+        assertThat(backups.retentionFor("secondary", new RetentionConfig(null, 9)))
+                .isEqualTo(new RetentionConfig(null, 9));
     }
 
     private void sql(String... statements) throws SQLException {

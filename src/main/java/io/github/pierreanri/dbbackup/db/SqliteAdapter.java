@@ -46,11 +46,12 @@ public class SqliteAdapter implements DatabaseAdapter {
     }
 
     @Override
-    public void backup(BackupRequest request, Path outputFile) {
+    public DumpResult backup(BackupRequest request, Path outputFile) {
         Path source = requireExistingFile(request.database().file());
         try {
             Files.deleteIfExists(outputFile);
-            if (request.scope() == BackupScope.FULL && request.tables().isEmpty()) {
+            boolean whole = request.scope() == BackupScope.FULL && request.tables().isEmpty();
+            if (whole) {
                 fullBackup(source, outputFile);
             } else if (request.scope() == BackupScope.DATA_ONLY) {
                 throw new DbBackupException("SQLite backups do not support the data-only scope");
@@ -58,9 +59,86 @@ public class SqliteAdapter implements DatabaseAdapter {
                 partialBackup(source, outputFile, request.tables(), request.scope() == BackupScope.FULL);
             }
             checkIntegrity(outputFile);
+            if (whole && request.database().isIncremental()) {
+                SqlitePages.PageState state = SqlitePages.computeState(outputFile);
+                Path stateFile = outputFile.resolveSibling(outputFile.getFileName() + ".state");
+                SqlitePages.writeState(state, stateFile);
+                return new DumpResult(checkpoint(state), stateFile, DumpResult.LOGICAL);
+            }
+            return DumpResult.NONE;
         } catch (SQLException | java.io.IOException e) {
             throw new DbBackupException("SQLite backup of " + source + " failed: " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public boolean supportsIncremental() {
+        return true;
+    }
+
+    @Override
+    public String fileExtension(DatabaseConfig database, BackupType type) {
+        return type == BackupType.FULL ? "db" : "pages";
+    }
+
+    @Override
+    public DumpResult backupChanges(ChangesRequest request, Path outputFile) {
+        Path source = requireExistingFile(request.database().file());
+        if (request.fromState() == null) {
+            throw new DbBackupException("The page fingerprints of the previous backup are missing: take a full backup");
+        }
+        Path snapshot = outputFile.resolveSibling("snapshot-" + outputFile.getFileName() + ".db");
+        try {
+            fullBackup(source, snapshot);
+            checkIntegrity(snapshot);
+            SqlitePages.PageState previous = SqlitePages.readState(request.fromState());
+            SqlitePages.ChangeSummary summary = SqlitePages.writeChanges(snapshot, previous, outputFile);
+            LOG.info("{} of {} pages changed since the {} backup", summary.changedPages(), summary.state().pageCount(),
+                    request.type() == BackupType.DIFFERENTIAL ? "full" : "previous");
+            Path stateFile = outputFile.resolveSibling(outputFile.getFileName() + ".state");
+            SqlitePages.writeState(summary.state(), stateFile);
+            return new DumpResult(checkpoint(summary.state()), stateFile, DumpResult.LOGICAL);
+        } catch (SQLException | java.io.IOException e) {
+            throw new DbBackupException("SQLite incremental backup of " + source + " failed: " + e.getMessage(), e);
+        } finally {
+            try {
+                Files.deleteIfExists(snapshot);
+            } catch (java.io.IOException ignored) {
+                // temporary file
+            }
+        }
+    }
+
+    @Override
+    public void restoreChain(RestoreRequest request, Path fullDump, List<Path> changes) {
+        if (changes.isEmpty()) {
+            restore(request, fullDump);
+            return;
+        }
+        Path rebuilt = fullDump.resolveSibling("rebuilt-" + fullDump.getFileName());
+        try {
+            Files.copy(fullDump, rebuilt, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            for (Path change : changes) {
+                LOG.info("Applying {}", change.getFileName());
+                SqlitePages.applyChanges(rebuilt, change);
+            }
+            checkIntegrity(rebuilt);
+            restore(request, rebuilt);
+        } catch (SQLException | java.io.IOException e) {
+            throw new DbBackupException("Rebuilding the SQLite database from its backup chain failed: " + e.getMessage(),
+                    e);
+        } finally {
+            try {
+                Files.deleteIfExists(rebuilt);
+            } catch (java.io.IOException ignored) {
+                // temporary file
+            }
+        }
+    }
+
+    private static java.util.Map<String, String> checkpoint(SqlitePages.PageState state) {
+        return java.util.Map.of("pageSize", String.valueOf(state.pageSize()), "pageCount",
+                String.valueOf(state.pageCount()));
     }
 
     @Override

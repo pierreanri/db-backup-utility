@@ -157,6 +157,12 @@ public final class ConfigValidator {
             }
             checkStorageRefs(where + ".storage", schedule.storage(), config.storage(), errors);
             checkCompression(where + ".compression", schedule.compression(), errors);
+            if (schedule.type() != io.github.pierreanri.dbbackup.db.BackupType.FULL
+                    && config.databases().get(schedule.database()) != null
+                    && !config.databases().get(schedule.database()).isIncremental()) {
+                errors.add(where + ".type " + schedule.type() + " needs 'incremental: true' on database '"
+                        + schedule.database() + "'");
+            }
             validateRetention(where + ".retention", schedule.retention(), errors);
         }
     }

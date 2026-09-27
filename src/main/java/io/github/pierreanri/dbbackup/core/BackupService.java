@@ -24,9 +24,13 @@ import io.github.pierreanri.dbbackup.crypto.AgeCrypto;
 import io.github.pierreanri.dbbackup.config.RetentionConfig;
 import io.github.pierreanri.dbbackup.core.BackupResult.TargetResult;
 import io.github.pierreanri.dbbackup.db.BackupRequest;
+import io.github.pierreanri.dbbackup.db.BackupScope;
+import io.github.pierreanri.dbbackup.db.BackupType;
+import io.github.pierreanri.dbbackup.db.ChangesRequest;
 import io.github.pierreanri.dbbackup.db.DatabaseAdapter;
 import io.github.pierreanri.dbbackup.db.DatabaseAdapters;
 import io.github.pierreanri.dbbackup.db.DatabaseType;
+import io.github.pierreanri.dbbackup.db.DumpResult;
 import io.github.pierreanri.dbbackup.logging.ActivityEntry;
 import io.github.pierreanri.dbbackup.logging.ActivityEntry.Operation;
 import io.github.pierreanri.dbbackup.logging.ActivityEntry.Status;
@@ -79,22 +83,54 @@ public class BackupService {
             }
             DatabaseAdapter adapter = adapters.forType(db.type());
 
-            LOG.info("Backing up '{}' ({})", db.name(), db.describe());
+            BackupType type = job.type();
+            BackupManifest base = null;
+            BackupManifest parent = null;
+            if (type != BackupType.FULL) {
+                checkIncrementalAllowed(db, adapter, job);
+                List<BackupManifest> existing = new BackupCatalog(targets.get(0)).list(db.name());
+                base = existing.stream().filter(BackupManifest::canStartChain).findFirst().orElse(null);
+                if (base == null) {
+                    LOG.warn("No full backup of '{}' to build on in '{}': taking a full backup instead", db.name(),
+                            targets.get(0).name());
+                    type = BackupType.FULL;
+                } else if (type == BackupType.DIFFERENTIAL) {
+                    parent = base;
+                } else {
+                    String chain = base.id();
+                    parent = existing.stream().filter(m -> chain.equals(m.chainId())).findFirst().orElse(base);
+                }
+            }
+
+            LOG.info("Backing up '{}' ({}){}", db.name(), db.describe(),
+                    parent == null ? "" : ": " + type + " backup based on " + parent.id());
             String serverVersion = adapter.testConnection(db);
             LOG.info("Connected: {}", serverVersion);
 
             String id = uniqueId(db.name(), start, targets.get(0));
             Files.createDirectories(workDir);
             runDir = Files.createTempDirectory(workDir, "backup-");
-            Path raw = runDir.resolve("raw-" + id + "." + db.type().fileExtension());
-            adapter.backup(new BackupRequest(db, job.scope(), job.tables()), raw);
+            String extension = adapter.fileExtension(db, type);
+            Path raw = runDir.resolve("raw-" + id + "." + extension);
+            DumpResult dump;
+            if (type == BackupType.FULL) {
+                dump = adapter.backup(new BackupRequest(db, job.scope(), job.tables()), raw);
+            } else {
+                Path parentState = null;
+                if (parent.stateKey() != null) {
+                    parentState = runDir.resolve("parent.state");
+                    downloadState(targets.get(0), parent, parentState);
+                }
+                dump = adapter.backupChanges(new ChangesRequest(db, type, parent.checkpoint(), parentState,
+                        parent.method()), raw);
+            }
             if (!Files.isRegularFile(raw)) {
                 throw new DbBackupException("The dump tool did not produce " + raw.getFileName());
             }
             long rawSize = Files.size(raw);
 
             EncryptionConfig encryption = config.encryption();
-            String fileName = BackupNaming.fileName(id, db.type(), job.compression(), encryption.enabled());
+            String fileName = BackupNaming.fileName(id, extension, job.compression(), encryption.enabled());
             Path stored = runDir.resolve(fileName);
             Path compressed = encryption.enabled() ? runDir.resolve(fileName + ".tmp") : stored;
             String sha256 = null;
@@ -116,18 +152,28 @@ public class BackupService {
             }
             long size = Files.size(stored);
 
+            Path stateFile = null;
+            String stateName = null;
+            if (dump.stateFile() != null) {
+                stateName = id + BackupNaming.STATE_SUFFIX;
+                stateFile = runDir.resolve(stateName);
+                Compressor.compress(dump.stateFile(), stateFile, Compression.GZIP);
+            }
+
             manifest = new BackupManifest(BackupManifest.FORMAT_VERSION, id, db.name(), db.type(),
                     db.type() == DatabaseType.SQLITE ? db.file() : db.database(),
                     db.type().isNetworked() && db.uri() == null ? db.effectiveHost() : null,
-                    job.scope(), job.tables(), job.compression(), encryption.enabled() ? AgeCrypto.ALGORITHM : null,
-                    fileName, size, rawSize, sha256, start,
+                    type, parent == null ? null : parent.id(), base == null ? null : base.id(), dump.method(),
+                    dump.checkpoint(), stateName, job.scope(), job.tables(), job.compression(),
+                    encryption.enabled() ? AgeCrypto.ALGORITHM : null, fileName, size, rawSize, sha256, start,
                     clock.millis() - start.toEpochMilli(), serverVersion, VersionProvider.version(),
                     HostInfo.hostname());
             byte[] manifestJson = Mappers.json().writerWithDefaultPrettyPrinter().writeValueAsBytes(manifest);
 
             List<TargetResult> results = new ArrayList<>();
-            for (StorageBackend target : targets) {
-                results.add(store(target, stored, manifest, manifestJson, job));
+            for (int i = 0; i < targets.size(); i++) {
+                results.add(store(targets.get(i), stored, stateFile, manifest, manifestJson, job,
+                        i == 0 ? null : parent));
             }
             BackupResult result = new BackupResult(manifest, results, clock.millis() - start.toEpochMilli());
             record(job, db, manifest, result, start, null);
@@ -144,14 +190,41 @@ public class BackupService {
         }
     }
 
-    private TargetResult store(StorageBackend target, Path file, BackupManifest manifest, byte[] manifestJson,
-            BackupJob job) {
+    private static void checkIncrementalAllowed(DatabaseConfig db, DatabaseAdapter adapter, BackupJob job) {
+        if (!adapter.supportsIncremental()) {
+            throw new DbBackupException(db.type() + " databases do not support incremental backups");
+        }
+        if (!db.isIncremental()) {
+            throw new DbBackupException("Incremental backups are not enabled for '" + db.name()
+                    + "': set 'incremental: true' on the database (see the README for the server requirements)");
+        }
+        if (job.scope() != BackupScope.FULL || !job.tables().isEmpty()) {
+            throw new DbBackupException("Incremental and differential backups cover the whole database: they cannot "
+                    + "be combined with --tables, --schema-only or --data-only");
+        }
+    }
+
+    private static void downloadState(StorageBackend storage, BackupManifest parent, Path target) {
+        Path compressed = target.resolveSibling(target.getFileName() + ".gz");
+        storage.download(parent.stateKey(), compressed);
+        Compressor.decompress(compressed, target, Compression.GZIP);
+    }
+
+    private TargetResult store(StorageBackend target, Path file, Path stateFile, BackupManifest manifest,
+            byte[] manifestJson, BackupJob job, BackupManifest requiredParent) {
         String location = target.location(manifest.backupKey());
         try {
+            if (requiredParent != null && !target.exists(requiredParent.manifestKey())) {
+                throw new DbBackupException("the backup " + requiredParent.id() + " this " + manifest.backupType()
+                        + " backup depends on is missing here: take a full backup");
+            }
             LOG.info("Uploading {} ({}) to {}", manifest.fileName(), FileUtils.humanSize(manifest.sizeBytes()),
                     location);
             // The manifest is written last: its presence marks the backup as complete.
             target.upload(file, manifest.backupKey());
+            if (stateFile != null) {
+                target.upload(stateFile, manifest.stateKey());
+            }
             target.write(manifest.manifestKey(), manifestJson);
         } catch (RuntimeException e) {
             LOG.error("Storing the backup in '{}' failed: {}", target.name(), e.getMessage());
@@ -237,6 +310,9 @@ public class BackupService {
                 }
             }
             message = errors.isEmpty() ? null : String.join("; ", errors);
+        }
+        if (message == null && manifest != null && !manifest.isFull()) {
+            message = manifest.backupType() + " based on " + manifest.parentId();
         }
         ActivityEntry entry = new ActivityEntry(start, Operation.BACKUP, status, db.name(), db.type().id(),
                 manifest == null ? null : manifest.id(), manifest == null ? null : manifest.sizeBytes(),

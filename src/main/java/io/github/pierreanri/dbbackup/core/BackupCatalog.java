@@ -61,10 +61,47 @@ public class BackupCatalog {
                         : list(null).stream().filter(m -> m.id().equals(id)).findFirst());
     }
 
-    /** Deletes the backup file, then its manifest. */
+    /**
+     * Deletes a backup. The manifest goes first so that an interrupted deletion never leaves a
+     * listed backup without its file.
+     */
     public void delete(BackupManifest manifest) {
-        storage.delete(manifest.backupKey());
         storage.delete(manifest.manifestKey());
+        storage.delete(manifest.backupKey());
+        if (manifest.stateKey() != null) {
+            storage.delete(manifest.stateKey());
+        }
+    }
+
+    /**
+     * The backups needed to restore {@code target}, oldest (the full backup) first.
+     *
+     * @throws DbBackupException when a backup of the chain is missing
+     */
+    public List<BackupManifest> chain(BackupManifest target) {
+        return resolveChain(target, list(target.database()), storage.name());
+    }
+
+    static List<BackupManifest> resolveChain(BackupManifest target, List<BackupManifest> candidates, String where) {
+        java.util.Map<String, BackupManifest> byId = new java.util.HashMap<>();
+        candidates.forEach(m -> byId.put(m.id(), m));
+        java.util.LinkedList<BackupManifest> chain = new java.util.LinkedList<>();
+        BackupManifest current = target;
+        while (true) {
+            chain.addFirst(current);
+            if (current.isFull()) {
+                return chain;
+            }
+            if (chain.size() > 10_000 || current.parentId() == null) {
+                throw new DbBackupException("Backup " + current.id() + " has an invalid chain");
+            }
+            BackupManifest parent = byId.get(current.parentId());
+            if (parent == null) {
+                throw new DbBackupException("Backup " + target.id() + " depends on " + current.parentId()
+                        + ", which is missing from " + where + ": it cannot be restored");
+            }
+            current = parent;
+        }
     }
 
     public StorageBackend storage() {

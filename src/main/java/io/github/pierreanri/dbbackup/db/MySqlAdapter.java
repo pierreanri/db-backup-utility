@@ -50,7 +50,7 @@ public class MySqlAdapter implements DatabaseAdapter {
     }
 
     @Override
-    public void backup(BackupRequest request, Path outputFile) {
+    public DumpResult backup(BackupRequest request, Path outputFile) {
         DatabaseConfig db = request.database();
         Path options = optionFile(db);
         try {
@@ -69,6 +69,7 @@ public class MySqlAdapter implements DatabaseAdapter {
 
             LOG.info("Dumping {} database '{}' with {}", label(), db.database(), Path.of(command.get(0)).getFileName());
             runner.run(spec(command, db).timeoutMinutes(db.timeoutMinutes()).build());
+            return DumpResult.NONE;
         } finally {
             SecretFiles.deleteQuietly(options);
         }

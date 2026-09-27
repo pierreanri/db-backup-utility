@@ -18,6 +18,7 @@ import io.github.pierreanri.dbbackup.db.DatabaseType;
 public final class BackupNaming {
 
     public static final String MANIFEST_SUFFIX = ".manifest.json";
+    public static final String STATE_SUFFIX = ".state.gz";
 
     private static final DateTimeFormatter TIMESTAMP =
             DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC);
@@ -34,7 +35,11 @@ public final class BackupNaming {
     }
 
     public static String fileName(String id, DatabaseType type, Compression compression, boolean encrypted) {
-        return id + "." + type.fileExtension() + compression.extension() + (encrypted ? AgeCrypto.EXTENSION : "");
+        return fileName(id, type.fileExtension(), compression, encrypted);
+    }
+
+    public static String fileName(String id, String extension, Compression compression, boolean encrypted) {
+        return id + "." + extension + compression.extension() + (encrypted ? AgeCrypto.EXTENSION : "");
     }
 
     public static String manifestKey(String database, String id) {

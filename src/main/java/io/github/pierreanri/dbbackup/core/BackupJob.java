@@ -6,6 +6,7 @@ import io.github.pierreanri.dbbackup.compression.Compression;
 import io.github.pierreanri.dbbackup.config.DatabaseConfig;
 import io.github.pierreanri.dbbackup.config.RetentionConfig;
 import io.github.pierreanri.dbbackup.db.BackupScope;
+import io.github.pierreanri.dbbackup.db.BackupType;
 
 /**
  * What to back up and where.
@@ -13,6 +14,7 @@ import io.github.pierreanri.dbbackup.db.BackupScope;
  * @param database       database profile
  * @param storage        names of the storage targets
  * @param compression    compression of the stored file
+ * @param type           full, incremental or differential
  * @param scope          full, schema-only or data-only
  * @param tables         tables/collections to include; all when empty
  * @param retention      retention override (command line or schedule); may be {@code null}
@@ -23,6 +25,7 @@ public record BackupJob(
         DatabaseConfig database,
         List<String> storage,
         Compression compression,
+        BackupType type,
         BackupScope scope,
         List<String> tables,
         RetentionConfig retention,
@@ -34,6 +37,7 @@ public record BackupJob(
         tables = tables == null ? List.of() : List.copyOf(tables);
         compression = compression == null ? Compression.GZIP : compression;
         scope = scope == null ? BackupScope.FULL : scope;
+        type = type == null ? BackupType.FULL : type;
         trigger = trigger == null ? "cli" : trigger;
     }
 }

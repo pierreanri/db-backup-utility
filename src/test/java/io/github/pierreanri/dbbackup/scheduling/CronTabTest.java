@@ -11,7 +11,7 @@ import io.github.pierreanri.dbbackup.config.ScheduleConfig;
 class CronTabTest {
 
     private static ScheduledJob job(String name, String cron) {
-        return ScheduledJob.of(new ScheduleConfig(name, "db", cron, null, null, null, null, null, null, null));
+        return ScheduledJob.of(new ScheduleConfig(name, "db", cron, null, null, null, null, null, null, null, null));
     }
 
     @Test

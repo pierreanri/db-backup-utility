@@ -63,7 +63,7 @@ public class MongoAdapter implements DatabaseAdapter {
     }
 
     @Override
-    public void backup(BackupRequest request, Path outputFile) {
+    public DumpResult backup(BackupRequest request, Path outputFile) {
         DatabaseConfig db = request.database();
         if (request.scope() != BackupScope.FULL) {
             throw new DbBackupException("MongoDB backups only support the full scope");
@@ -91,6 +91,7 @@ public class MongoAdapter implements DatabaseAdapter {
             LOG.info("Dumping MongoDB {} with mongodump", db.database() != null ? "database '" + db.database() + "'"
                     : "server (all databases)");
             runner.run(spec(command, db).timeoutMinutes(db.timeoutMinutes()).build());
+            return DumpResult.NONE;
         } finally {
             SecretFiles.deleteQuietly(config);
         }

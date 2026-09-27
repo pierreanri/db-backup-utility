@@ -22,6 +22,9 @@ import io.github.pierreanri.dbbackup.util.Secrets;
  * @param dumpArgs       extra arguments appended to the dump command
  * @param restoreArgs    extra arguments appended to the restore command
  * @param timeoutMinutes maximum duration of a dump or restore; unlimited when not set
+ * @param incremental    enable incremental/differential backups (full backups then record the
+ *                       position the next incremental backup starts from; PostgreSQL switches to
+ *                       physical backups)
  */
 public record DatabaseConfig(
         String name,
@@ -37,7 +40,8 @@ public record DatabaseConfig(
         String binPath,
         List<String> dumpArgs,
         List<String> restoreArgs,
-        Integer timeoutMinutes) {
+        Integer timeoutMinutes,
+        Boolean incremental) {
 
     public DatabaseConfig {
         dumpArgs = dumpArgs == null ? List.of() : List.copyOf(dumpArgs);
@@ -46,57 +50,67 @@ public record DatabaseConfig(
 
     /** Minimal constructor, mostly useful for ad-hoc command line usage and tests. */
     public static DatabaseConfig of(String name, DatabaseType type) {
-        return new DatabaseConfig(name, type, null, null, null, null, null, null, null, null, null, null, null, null);
+        return new DatabaseConfig(name, type, null, null, null, null, null, null, null, null, null, null, null, null,
+                null);
     }
 
     public DatabaseConfig withName(String newName) {
         return new DatabaseConfig(newName, type, host, port, username, password, database, uri, file, authDatabase,
-                binPath, dumpArgs, restoreArgs, timeoutMinutes);
+                binPath, dumpArgs, restoreArgs, timeoutMinutes, incremental);
     }
 
     public DatabaseConfig withHost(String newHost) {
         return new DatabaseConfig(name, type, newHost, port, username, password, database, uri, file, authDatabase,
-                binPath, dumpArgs, restoreArgs, timeoutMinutes);
+                binPath, dumpArgs, restoreArgs, timeoutMinutes, incremental);
     }
 
     public DatabaseConfig withPort(Integer newPort) {
         return new DatabaseConfig(name, type, host, newPort, username, password, database, uri, file, authDatabase,
-                binPath, dumpArgs, restoreArgs, timeoutMinutes);
+                binPath, dumpArgs, restoreArgs, timeoutMinutes, incremental);
     }
 
     public DatabaseConfig withCredentials(String newUsername, String newPassword) {
         return new DatabaseConfig(name, type, host, port, newUsername, newPassword, database, uri, file, authDatabase,
-                binPath, dumpArgs, restoreArgs, timeoutMinutes);
+                binPath, dumpArgs, restoreArgs, timeoutMinutes, incremental);
     }
 
     public DatabaseConfig withDatabase(String newDatabase) {
         return new DatabaseConfig(name, type, host, port, username, password, newDatabase, uri, file, authDatabase,
-                binPath, dumpArgs, restoreArgs, timeoutMinutes);
+                binPath, dumpArgs, restoreArgs, timeoutMinutes, incremental);
     }
 
     public DatabaseConfig withUri(String newUri) {
         return new DatabaseConfig(name, type, host, port, username, password, database, newUri, file, authDatabase,
-                binPath, dumpArgs, restoreArgs, timeoutMinutes);
+                binPath, dumpArgs, restoreArgs, timeoutMinutes, incremental);
     }
 
     public DatabaseConfig withFile(String newFile) {
         return new DatabaseConfig(name, type, host, port, username, password, database, uri, newFile, authDatabase,
-                binPath, dumpArgs, restoreArgs, timeoutMinutes);
+                binPath, dumpArgs, restoreArgs, timeoutMinutes, incremental);
     }
 
     public DatabaseConfig withAuthDatabase(String newAuthDatabase) {
         return new DatabaseConfig(name, type, host, port, username, password, database, uri, file, newAuthDatabase,
-                binPath, dumpArgs, restoreArgs, timeoutMinutes);
+                binPath, dumpArgs, restoreArgs, timeoutMinutes, incremental);
     }
 
     public DatabaseConfig withBinPath(String newBinPath) {
         return new DatabaseConfig(name, type, host, port, username, password, database, uri, file, authDatabase,
-                newBinPath, dumpArgs, restoreArgs, timeoutMinutes);
+                newBinPath, dumpArgs, restoreArgs, timeoutMinutes, incremental);
     }
 
     public DatabaseConfig withTimeoutMinutes(Integer newTimeoutMinutes) {
         return new DatabaseConfig(name, type, host, port, username, password, database, uri, file, authDatabase,
-                binPath, dumpArgs, restoreArgs, newTimeoutMinutes);
+                binPath, dumpArgs, restoreArgs, newTimeoutMinutes, incremental);
+    }
+
+    public DatabaseConfig withIncremental(Boolean newIncremental) {
+        return new DatabaseConfig(name, type, host, port, username, password, database, uri, file, authDatabase,
+                binPath, dumpArgs, restoreArgs, timeoutMinutes, newIncremental);
+    }
+
+    public boolean isIncremental() {
+        return incremental != null && incremental;
     }
 
     public String effectiveHost() {

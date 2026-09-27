@@ -109,7 +109,7 @@ class CliTest {
     @Test
     void backupListRestoreAndHistory() throws SQLException {
         assertThat(run("backup", "app")).isZero();
-        assertThat(out).contains("Backup app-").contains("completed").contains("sha256:")
+        assertThat(out).contains("Full backup app-").contains("completed").contains("sha256:")
                 .contains(tmp.resolve("primary").toString());
 
         assertThat(run("list")).isZero();
@@ -136,7 +136,7 @@ class CliTest {
     @Test
     void failuresReturnNonZeroAndAreRecorded() {
         assertThat(run("backup", "app", "broken")).isEqualTo(1);
-        assertThat(out).contains("Backup app-");
+        assertThat(out).contains("Full backup app-");
         assertThat(err).contains("Backup of 'broken' failed").contains("SQLite database file not found");
 
         assertThat(run("history", "--failed")).isZero();
@@ -225,7 +225,8 @@ class CliTest {
         assertThat(err).contains("already exists");
 
         LoadedConfig example = new ConfigLoader(name -> "x", tmp, tmp).loadFile(generated);
-        assertThat(example.config().databases()).containsKeys("app-postgres", "shop-mysql", "events-mongo", "cache-sqlite");
+        assertThat(example.config().databases())
+                .containsKeys("app-postgres", "shop-mysql", "events-mongo", "cache-sqlite");
     }
 
     @Test
@@ -285,6 +286,31 @@ class CliTest {
         assertThat(run("keygen")).isZero();
         assertThat(out).contains("AGE-SECRET-KEY-1");
         assertThat(err).contains("Public key: age1");
+    }
+
+    @Test
+    void incrementalBackupsFromTheCommandLine() throws IOException, SQLException {
+        assertThat(run("backup", "app", "--type", "incremental")).isEqualTo(1);
+        assertThat(err).contains("Incremental backups are not enabled for 'app'");
+
+        Files.writeString(config, Files.readString(config).replace("    type: sqlite\n    file: " + dbFile,
+                "    type: sqlite\n    file: " + dbFile + "\n    incremental: true"));
+        assertThat(run("backup", "app")).isZero();
+        sql(dbFile, "INSERT INTO users(name) VALUES ('linus')");
+        assertThat(run("backup", "app", "--type", "incr")).isZero();
+        assertThat(out).contains("Incremental backup app-").contains("based on:  app-");
+        assertThat(run("backup", "app", "-T", "differential", "--json")).isZero();
+        assertThat(out).contains("\"backupType\" : \"differential\"");
+
+        assertThat(run("list", "app")).isZero();
+        assertThat(out).contains("BACKUP").contains("full").contains("incr <- app-").contains("diff <- app-");
+
+        sql(dbFile, "DELETE FROM users");
+        assertThat(run("restore", "latest", "--db", "app", "-y")).isZero();
+        assertThat(out).contains("differential").contains("applied:");
+        assertThat(count(dbFile, "users")).isEqualTo(3);
+        assertThat(run("history")).isZero();
+        assertThat(out).contains("(incremental based on app-");
     }
 
     @Test

@@ -45,7 +45,7 @@ public class PostgresAdapter implements DatabaseAdapter {
     }
 
     @Override
-    public void backup(BackupRequest request, Path outputFile) {
+    public DumpResult backup(BackupRequest request, Path outputFile) {
         DatabaseConfig db = request.database();
         List<String> command = new ArrayList<>(List.of(Executables.resolve(db.binPath(), "pg_dump")));
         command.addAll(connectionArgs(db, db.database()));
@@ -63,6 +63,7 @@ public class PostgresAdapter implements DatabaseAdapter {
 
         LOG.info("Dumping PostgreSQL database '{}' with pg_dump", db.database());
         runner.run(spec(command, db).timeoutMinutes(db.timeoutMinutes()).build());
+        return DumpResult.NONE;
     }
 
     @Override

@@ -15,6 +15,7 @@ import io.github.pierreanri.dbbackup.core.BackupResult;
 import io.github.pierreanri.dbbackup.core.BackupResult.TargetResult;
 import io.github.pierreanri.dbbackup.core.BackupService;
 import io.github.pierreanri.dbbackup.db.BackupScope;
+import io.github.pierreanri.dbbackup.db.BackupType;
 import io.github.pierreanri.dbbackup.util.FileUtils;
 import io.github.pierreanri.dbbackup.util.Mappers;
 import picocli.CommandLine.Command;
@@ -30,6 +31,7 @@ import picocli.CommandLine.Parameters;
             "  dbbackup backup app",
             "  dbbackup backup --all --storage local,s3",
             "  dbbackup backup app --tables users,orders --compression xz",
+            "  dbbackup backup app --type incremental",
             "  dbbackup backup --db-type postgresql --db-name shop --db-user postgres \\",
             "      --db-password-env PGPASS --output-dir ./backups"})
 class BackupCommand extends BaseCommand {
@@ -45,6 +47,11 @@ class BackupCommand extends BaseCommand {
 
     @Mixin
     StorageOptions storageOptions;
+
+    @Option(names = {"-T", "--type"}, paramLabel = "TYPE",
+            description = "full (default), incremental (changes since the previous backup) or differential "
+                    + "(changes since the last full backup). Needs 'incremental: true' on the database.")
+    BackupType type = BackupType.FULL;
 
     @Option(names = {"-C", "--compression"}, paramLabel = "ALGO",
             description = "gzip (default), bzip2, xz or none.")
@@ -96,7 +103,7 @@ class BackupCommand extends BaseCommand {
         List<BackupManifest> manifests = new ArrayList<>();
         for (DatabaseConfig db : targets) {
             try {
-                BackupResult result = service.backup(new BackupJob(db, storage, algo, scope, tables,
+                BackupResult result = service.backup(new BackupJob(db, storage, algo, type, scope, tables,
                         retentionOptions.toConfig(), !noRetention, "cli"));
                 manifests.add(result.manifest());
                 if (!json) {
@@ -119,10 +126,19 @@ class BackupCommand extends BaseCommand {
         return failures == 0 ? OK : FAILED;
     }
 
+    private static String capitalize(String value) {
+        return Character.toUpperCase(value.charAt(0)) + value.substring(1);
+    }
+
     private void printResult(BackupResult result) {
         BackupManifest m = result.manifest();
         String status = result.success() ? "completed" : result.partial() ? "partially failed" : "failed";
-        out().printf("Backup %s %s in %s%n", m.id(), status, FileUtils.humanDuration(result.durationMillis()));
+        out().printf("%s backup %s %s in %s%n", capitalize(m.backupType().id()), m.id(), status,
+                FileUtils.humanDuration(result.durationMillis()));
+        if (!m.isFull()) {
+            out().printf("  based on:  %s%s%n", m.parentId(),
+                    m.parentId().equals(m.baseId()) ? "" : " (chain started by " + m.baseId() + ")");
+        }
         out().printf("  database:  %s (%s%s)%n", m.database(), m.databaseType(),
                 m.databaseName() != null ? " " + m.databaseName() : "");
         out().printf("  size:      %s (raw %s, %s%s)%n", FileUtils.humanSize(m.sizeBytes()),
