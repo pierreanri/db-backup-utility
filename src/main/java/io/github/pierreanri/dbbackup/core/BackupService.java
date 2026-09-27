@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -66,7 +67,7 @@ public class BackupService {
             throw new DbBackupException("No storage target given");
         }
         DatabaseConfig db = withDefaults(job.database());
-        Instant start = clock.instant();
+        Instant start = clock.instant().truncatedTo(ChronoUnit.MILLIS);
         Path runDir = null;
         BackupManifest manifest = null;
         try {
