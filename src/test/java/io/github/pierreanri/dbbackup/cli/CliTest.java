@@ -261,6 +261,33 @@ class CliTest {
     }
 
     @Test
+    void keygenAndEncryptedBackups() throws IOException, SQLException {
+        Path key = tmp.resolve("keys/backup.key");
+        assertThat(run("keygen", "-o", key.toString())).isZero();
+        String publicKey = out.replaceAll("(?s).*Public key: (age1\\w+).*", "$1");
+        assertThat(publicKey).startsWith("age1");
+        assertThat(java.nio.file.attribute.PosixFilePermissions.toString(Files.getPosixFilePermissions(key)))
+                .isEqualTo("rw-------");
+        assertThat(run("keygen", "-o", key.toString())).isEqualTo(1);
+
+        Files.writeString(config, Files.readString(config) + "encryption:\n  recipients: [" + publicKey + "]\n");
+        assertThat(run("backup", "app")).isZero();
+        assertThat(out).contains("encrypted with age");
+        assertThat(run("list")).isZero();
+        assertThat(out).contains("gzip+age");
+
+        sql(dbFile, "DELETE FROM users");
+        assertThat(run("restore", "latest", "--db", "app", "-y")).isEqualTo(1);
+        assertThat(err).contains("is encrypted");
+        assertThat(run("restore", "latest", "--db", "app", "-y", "--identity", key.toString())).isZero();
+        assertThat(count(dbFile, "users")).isEqualTo(2);
+
+        assertThat(run("keygen")).isZero();
+        assertThat(out).contains("AGE-SECRET-KEY-1");
+        assertThat(err).contains("Public key: age1");
+    }
+
+    @Test
     void globalOptionsWorkAfterTheSubcommand() {
         StringWriter outWriter = new StringWriter();
         CommandLine cmd = RootCommand.newCommandLine();

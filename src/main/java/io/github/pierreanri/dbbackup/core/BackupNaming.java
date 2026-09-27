@@ -5,6 +5,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 
 import io.github.pierreanri.dbbackup.compression.Compression;
+import io.github.pierreanri.dbbackup.crypto.AgeCrypto;
 import io.github.pierreanri.dbbackup.db.DatabaseType;
 
 /**
@@ -29,7 +30,11 @@ public final class BackupNaming {
     }
 
     public static String fileName(String id, DatabaseType type, Compression compression) {
-        return id + "." + type.fileExtension() + compression.extension();
+        return fileName(id, type, compression, false);
+    }
+
+    public static String fileName(String id, DatabaseType type, Compression compression, boolean encrypted) {
+        return id + "." + type.fileExtension() + compression.extension() + (encrypted ? AgeCrypto.EXTENSION : "");
     }
 
     public static String manifestKey(String database, String id) {

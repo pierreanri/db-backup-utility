@@ -19,6 +19,8 @@ import io.github.pierreanri.dbbackup.compression.Compression;
 import io.github.pierreanri.dbbackup.compression.Compressor;
 import io.github.pierreanri.dbbackup.config.AppConfig;
 import io.github.pierreanri.dbbackup.config.DatabaseConfig;
+import io.github.pierreanri.dbbackup.config.EncryptionConfig;
+import io.github.pierreanri.dbbackup.crypto.AgeCrypto;
 import io.github.pierreanri.dbbackup.config.RetentionConfig;
 import io.github.pierreanri.dbbackup.core.BackupResult.TargetResult;
 import io.github.pierreanri.dbbackup.db.BackupRequest;
@@ -91,23 +93,34 @@ public class BackupService {
             }
             long rawSize = Files.size(raw);
 
-            String fileName = BackupNaming.fileName(id, db.type(), job.compression());
+            EncryptionConfig encryption = config.encryption();
+            String fileName = BackupNaming.fileName(id, db.type(), job.compression(), encryption.enabled());
             Path stored = runDir.resolve(fileName);
-            String sha256;
+            Path compressed = encryption.enabled() ? runDir.resolve(fileName + ".tmp") : stored;
+            String sha256 = null;
             if (job.compression() == Compression.NONE) {
-                Files.move(raw, stored);
-                sha256 = Checksums.sha256(stored);
+                Files.move(raw, compressed);
             } else {
                 LOG.info("Compressing {} dump ({})", FileUtils.humanSize(rawSize), job.compression());
-                sha256 = Compressor.compress(raw, stored, job.compression());
+                sha256 = Compressor.compress(raw, compressed, job.compression());
                 Files.delete(raw);
+            }
+            if (encryption.enabled()) {
+                LOG.info("Encrypting with age");
+                AgeCrypto.encrypt(compressed, stored, encryption);
+                Files.delete(compressed);
+                sha256 = null;
+            }
+            if (sha256 == null) {
+                sha256 = Checksums.sha256(stored);
             }
             long size = Files.size(stored);
 
             manifest = new BackupManifest(BackupManifest.FORMAT_VERSION, id, db.name(), db.type(),
                     db.type() == DatabaseType.SQLITE ? db.file() : db.database(),
                     db.type().isNetworked() && db.uri() == null ? db.effectiveHost() : null,
-                    job.scope(), job.tables(), job.compression(), fileName, size, rawSize, sha256, start,
+                    job.scope(), job.tables(), job.compression(), encryption.enabled() ? AgeCrypto.ALGORITHM : null,
+                    fileName, size, rawSize, sha256, start,
                     clock.millis() - start.toEpochMilli(), serverVersion, VersionProvider.version(),
                     HostInfo.hostname());
             byte[] manifestJson = Mappers.json().writerWithDefaultPrettyPrinter().writeValueAsBytes(manifest);

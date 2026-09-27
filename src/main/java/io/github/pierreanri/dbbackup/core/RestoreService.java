@@ -16,6 +16,8 @@ import io.github.pierreanri.dbbackup.compression.Checksums;
 import io.github.pierreanri.dbbackup.compression.Compression;
 import io.github.pierreanri.dbbackup.compression.Compressor;
 import io.github.pierreanri.dbbackup.config.DatabaseConfig;
+import io.github.pierreanri.dbbackup.config.EncryptionConfig;
+import io.github.pierreanri.dbbackup.crypto.AgeCrypto;
 import io.github.pierreanri.dbbackup.db.DatabaseAdapter;
 import io.github.pierreanri.dbbackup.db.DatabaseAdapters;
 import io.github.pierreanri.dbbackup.db.DatabaseType;
@@ -40,15 +42,17 @@ public class RestoreService {
 
     private final DatabaseAdapters adapters;
     private final StorageRegistry storages;
+    private final EncryptionConfig encryption;
     private final ActivityLog activityLog;
     private final Notifier notifier;
     private final Path workDir;
     private final Clock clock;
 
-    public RestoreService(DatabaseAdapters adapters, StorageRegistry storages, ActivityLog activityLog,
-            Notifier notifier, Path workDir, Clock clock) {
+    public RestoreService(DatabaseAdapters adapters, StorageRegistry storages, EncryptionConfig encryption,
+            ActivityLog activityLog, Notifier notifier, Path workDir, Clock clock) {
         this.adapters = adapters;
         this.storages = storages;
+        this.encryption = encryption == null ? EncryptionConfig.NONE : encryption;
         this.activityLog = activityLog;
         this.notifier = notifier;
         this.workDir = workDir;
@@ -90,8 +94,11 @@ public class RestoreService {
                 }
                 source = file.toAbsolutePath().toString();
                 manifest = siblingManifest(file);
-                compression = manifest != null ? manifest.compression()
-                        : Compression.fromFileName(file.getFileName().toString());
+                String name = file.getFileName().toString();
+                if (name.endsWith(AgeCrypto.EXTENSION)) {
+                    name = name.substring(0, name.length() - AgeCrypto.EXTENSION.length());
+                }
+                compression = manifest != null ? manifest.compression() : Compression.fromFileName(name);
             } else {
                 StorageBackend storage = storages.get(job.storage());
                 manifest = locate(job.storage(), job.backupId(), db.name());
@@ -112,6 +119,17 @@ public class RestoreService {
                     }
                     LOG.info("Checksum verified");
                 }
+            }
+
+            boolean encrypted = manifest != null ? manifest.encrypted() : AgeCrypto.isEncrypted(file);
+            if (encrypted) {
+                String name = file.getFileName().toString();
+                Path decrypted = runDir.resolve(name.endsWith(AgeCrypto.EXTENSION)
+                        ? name.substring(0, name.length() - AgeCrypto.EXTENSION.length()) : name + ".decrypted");
+                LOG.info("Decrypting (age)");
+                AgeCrypto.decrypt(file, decrypted, AgeCrypto.identities(encryption, job.identityFiles()),
+                        encryption.passphrase());
+                file = decrypted;
             }
 
             Path raw = file;

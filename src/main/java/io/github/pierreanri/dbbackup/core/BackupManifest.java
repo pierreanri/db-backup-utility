@@ -21,6 +21,7 @@ import io.github.pierreanri.dbbackup.db.DatabaseType;
  * @param scope           full, schema-only or data-only
  * @param tables          tables/collections included; empty for all
  * @param compression     compression of the stored file
+ * @param encryption      {@code age} when the stored file is encrypted, {@code null} otherwise
  * @param fileName        name of the stored backup file
  * @param sizeBytes       size of the stored (compressed) file
  * @param rawSizeBytes    size of the uncompressed dump
@@ -41,6 +42,7 @@ public record BackupManifest(
         BackupScope scope,
         List<String> tables,
         Compression compression,
+        String encryption,
         String fileName,
         long sizeBytes,
         long rawSizeBytes,
@@ -51,10 +53,14 @@ public record BackupManifest(
         String toolVersion,
         String hostname) {
 
-    public static final int FORMAT_VERSION = 1;
+    public static final int FORMAT_VERSION = 2;
 
     public BackupManifest {
         tables = tables == null ? List.of() : List.copyOf(tables);
+    }
+
+    public boolean encrypted() {
+        return encryption != null;
     }
 
     /** Storage key of the backup file. */

@@ -188,6 +188,10 @@ class ConfigLoaderTest {
                   - name: b
                     database: lite
                     cron: "0 25 * * *"
+                encryption:
+                  recipients: [age1invalid]
+                  passphrase: also-set
+                  scryptWorkFactor: 30
                 """;
         assertThatThrownBy(() -> loader(Map.of()).parse(yaml, null))
                 .isInstanceOf(ConfigException.class)
@@ -202,7 +206,10 @@ class ConfigLoaderTest {
                 .hasMessageContaining("schedules.a.cron is required")
                 .hasMessageContaining("schedules.a: duplicate schedule name")
                 .hasMessageContaining("schedules.a.retention.keepLast must be at least 1")
-                .hasMessageContaining("schedules.b: invalid cron expression '0 25 * * *'");
+                .hasMessageContaining("schedules.b: invalid cron expression '0 25 * * *'")
+                .hasMessageContaining("encryption: use either recipients or a passphrase")
+                .hasMessageContaining("invalid age recipient 'age1invalid'")
+                .hasMessageContaining("encryption.scryptWorkFactor must be between 10 and 22");
     }
 
     @Test

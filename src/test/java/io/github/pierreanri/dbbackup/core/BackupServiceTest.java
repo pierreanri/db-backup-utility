@@ -27,9 +27,11 @@ import org.junit.jupiter.api.io.TempDir;
 import io.github.pierreanri.dbbackup.DbBackupException;
 import io.github.pierreanri.dbbackup.compression.Checksums;
 import io.github.pierreanri.dbbackup.compression.Compression;
+import io.github.pierreanri.dbbackup.crypto.AgeCrypto;
 import io.github.pierreanri.dbbackup.config.AppConfig;
 import io.github.pierreanri.dbbackup.config.DatabaseConfig;
 import io.github.pierreanri.dbbackup.config.DefaultsConfig;
+import io.github.pierreanri.dbbackup.config.EncryptionConfig;
 import io.github.pierreanri.dbbackup.config.LocalStorageConfig;
 import io.github.pierreanri.dbbackup.config.RetentionConfig;
 import io.github.pierreanri.dbbackup.config.StorageConfig;
@@ -74,13 +76,13 @@ class BackupServiceTest {
                 "primary", new LocalStorageConfig(tmp.resolve("primary").toString(), null),
                 "secondary", new LocalStorageConfig(tmp.resolve("secondary").toString(), new RetentionConfig(1, null)));
         config = new AppConfig(Map.of("app", db), storage, null,
-                new DefaultsConfig(null, null, null, new RetentionConfig(3, null), null), null, null);
+                new DefaultsConfig(null, null, null, new RetentionConfig(3, null), null), null, null, null);
         clock = new MutableClock(Instant.parse("2026-09-01T02:00:00Z"));
         storages = new StorageRegistry(config, new StorageFactory());
         activityLog = new ActivityLog(tmp.resolve("logs/history.jsonl"));
         backups = new BackupService(config, new DatabaseAdapters(), storages, activityLog, notifications::add,
                 tmp.resolve("work"), clock);
-        restores = new RestoreService(new DatabaseAdapters(), storages, activityLog, notifications::add,
+        restores = new RestoreService(new DatabaseAdapters(), storages, null, activityLog, notifications::add,
                 tmp.resolve("work"), clock);
     }
 
@@ -177,7 +179,7 @@ class BackupServiceTest {
         sql("DELETE FROM users", "DROP TABLE logs");
 
         RestoreResult result = restores.restore(new RestoreJob(db, "primary", "latest", null, null, List.of(), false,
-                true, "cli"));
+                true, List.of(), "cli"));
 
         assertThat(result.manifest().id()).isEqualTo("app-20260901T020000Z");
         assertThat(count("users")).isEqualTo(2);
@@ -192,7 +194,8 @@ class BackupServiceTest {
                 null, false, "cli")).manifest().id();
         Path copy = tmp.resolve("copy.db");
 
-        restores.restore(new RestoreJob(db, "primary", id, null, copy.toString(), List.of("users"), false, true, "cli"));
+        restores.restore(new RestoreJob(db, "primary", id, null, copy.toString(), List.of("users"), false, true,
+                List.of(), "cli"));
 
         try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + copy);
                 Statement stmt = conn.createStatement();
@@ -210,7 +213,7 @@ class BackupServiceTest {
         Path file = tmp.resolve("primary/app/app-20260901T020000Z.db.bz2");
 
         RestoreResult result = restores.restore(new RestoreJob(db, null, null, file, null, List.of(), false, true,
-                "cli"));
+                List.of(), "cli"));
 
         assertThat(result.manifest()).isNotNull();
         assertThat(count("users")).isEqualTo(2);
@@ -225,7 +228,7 @@ class BackupServiceTest {
         Files.write(stored, bytes);
 
         assertThatThrownBy(() -> restores.restore(new RestoreJob(db, "primary", "latest", null, null, List.of(), false,
-                true, "cli")))
+                true, List.of(), "cli")))
                 .isInstanceOf(DbBackupException.class)
                 .hasMessageContaining("Checksum mismatch");
         assertThat(activityLog.readAll()).last().extracting(ActivityEntry::status).isEqualTo(Status.FAILED);
@@ -240,10 +243,10 @@ class BackupServiceTest {
             public io.github.pierreanri.dbbackup.db.ProcessResult run(io.github.pierreanri.dbbackup.db.ProcessSpec spec) {
                 return new io.github.pierreanri.dbbackup.db.ProcessResult(0, "PostgreSQL 16", "");
             }
-        }), storages, activityLog, notifications::add, tmp.resolve("work"), clock);
+        }), storages, null, activityLog, notifications::add, tmp.resolve("work"), clock);
 
         assertThatThrownBy(() -> offline.restore(new RestoreJob(postgres, "primary", "latest", null, null, List.of(),
-                false, true, "cli")))
+                false, true, List.of(), "cli")))
                 .isInstanceOf(DbBackupException.class)
                 .hasMessageContaining("is a sqlite backup and cannot be restored into the postgresql database");
     }
@@ -251,9 +254,63 @@ class BackupServiceTest {
     @Test
     void reportsUnknownBackups() {
         assertThatThrownBy(() -> restores.restore(new RestoreJob(db, "primary", "app-nope", null, null, List.of(),
-                false, true, "cli")))
+                false, true, List.of(), "cli")))
                 .isInstanceOf(DbBackupException.class)
                 .hasMessageContaining("Backup 'app-nope' not found in storage 'primary'");
+    }
+
+    @Test
+    void encryptsBackupsAndRestoresWithTheIdentity() throws Exception {
+        String[] keys = AgeCrypto.generateKeyPair();
+        Path identity = Files.writeString(tmp.resolve("key.txt"), keys[1] + "\n");
+        AppConfig encrypted = new AppConfig(config.databases(), config.storage(), null, config.defaults(), null, null,
+                new EncryptionConfig(List.of(keys[0]), null, null, null, null));
+        BackupService service = new BackupService(encrypted, new DatabaseAdapters(), storages, activityLog,
+                notifications::add, tmp.resolve("work"), clock);
+
+        BackupManifest manifest = service.backup(job("primary")).manifest();
+        assertThat(manifest.encryption()).isEqualTo("age");
+        assertThat(manifest.fileName()).isEqualTo("app-20260901T020000Z.db.gz.age");
+        Path stored = tmp.resolve("primary/app/" + manifest.fileName());
+        assertThat(AgeCrypto.isEncrypted(stored)).isTrue();
+        assertThat(Checksums.sha256(stored)).isEqualTo(manifest.sha256());
+
+        sql("DELETE FROM users");
+        RestoreJob restore = new RestoreJob(db, "primary", "latest", null, null, List.of(), false, true, List.of(),
+                "cli");
+        assertThatThrownBy(() -> restores.restore(restore))
+                .isInstanceOf(DbBackupException.class)
+                .hasMessageContaining("is encrypted");
+
+        RestoreService withKey = new RestoreService(new DatabaseAdapters(), storages,
+                new EncryptionConfig(null, null, null, List.of(identity.toString()), null), activityLog,
+                notifications::add, tmp.resolve("work"), clock);
+        withKey.restore(restore);
+        assertThat(count("users")).isEqualTo(2);
+
+        String[] otherKeys = AgeCrypto.generateKeyPair();
+        Path wrong = Files.writeString(tmp.resolve("wrong.txt"), otherKeys[1] + "\n");
+        assertThatThrownBy(() -> restores.restore(new RestoreJob(db, "primary", "latest", null, null, List.of(),
+                false, true, List.of(wrong), "cli")))
+                .isInstanceOf(DbBackupException.class)
+                .hasMessageContaining("Decryption of app-20260901T020000Z.db.gz.age failed");
+    }
+
+    @Test
+    void encryptsWithAPassphrase() throws Exception {
+        EncryptionConfig passphrase = new EncryptionConfig(null, null, "correct horse battery staple", null, 10);
+        AppConfig encrypted = new AppConfig(config.databases(), config.storage(), null, config.defaults(), null, null,
+                passphrase);
+        new BackupService(encrypted, new DatabaseAdapters(), storages, activityLog, notifications::add,
+                tmp.resolve("work"), clock).backup(new BackupJob(db, List.of("primary"), Compression.NONE,
+                BackupScope.FULL, List.of(), null, false, "cli"));
+        sql("DELETE FROM users");
+
+        new RestoreService(new DatabaseAdapters(), storages, passphrase, activityLog, notifications::add,
+                tmp.resolve("work"), clock).restore(new RestoreJob(db, "primary", "latest", null, null, List.of(),
+                false, true, List.of(), "cli"));
+
+        assertThat(count("users")).isEqualTo(2);
     }
 
     @Test

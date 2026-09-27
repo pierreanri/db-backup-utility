@@ -61,7 +61,8 @@ class ListCommand extends BaseCommand {
             for (Entry entry : entries) {
                 BackupManifest m = entry.manifest();
                 rows.add(List.of(m.id(), m.database(), m.databaseType().id(), Formats.time(m.createdAt()),
-                        FileUtils.humanSize(m.sizeBytes()), m.compression().id(), m.scope().id()
+                        FileUtils.humanSize(m.sizeBytes()),
+                        m.compression().id() + (m.encrypted() ? "+" + m.encryption() : ""), m.scope().id()
                                 + (m.tables().isEmpty() ? "" : " (" + String.join(",", m.tables()) + ")"),
                         entry.storage()));
             }

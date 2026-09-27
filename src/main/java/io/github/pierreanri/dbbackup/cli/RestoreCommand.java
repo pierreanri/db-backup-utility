@@ -65,6 +65,10 @@ class RestoreCommand extends BaseCommand {
     @Option(names = "--clean", description = "Drop existing objects before restoring them (PostgreSQL, MongoDB).")
     boolean clean;
 
+    @Option(names = {"-i", "--identity"}, paramLabel = "FILE",
+            description = "age identity file used to decrypt encrypted backups (in addition to encryption.identityFiles).")
+    List<Path> identities = new ArrayList<>();
+
     @Option(names = "--no-verify", description = "Skip the checksum verification.")
     boolean noVerify;
 
@@ -110,7 +114,8 @@ class RestoreCommand extends BaseCommand {
             return FAILED;
         }
         RestoreResult result = service.restore(new RestoreJob(target, storage,
-                manifest != null ? manifest.id() : null, file, targetDatabase, tables, clean, !noVerify, "cli"));
+                manifest != null ? manifest.id() : null, file, targetDatabase, tables, clean, !noVerify, identities,
+                "cli"));
         out().printf("Restored %s into %s in %s%n",
                 result.manifest() != null ? result.manifest().id() : result.source(),
                 describeTarget(target), FileUtils.humanDuration(result.durationMillis()));

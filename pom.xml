@@ -28,6 +28,7 @@
         <commons-compress.version>1.28.0</commons-compress.version>
         <xz.version>1.12</xz.version>
         <cron-utils.version>9.2.1</cron-utils.version>
+        <jagged.version>1.0.0</jagged.version>
         <aws-sdk.version>2.55.6</aws-sdk.version>
         <google-cloud-bom.version>26.89.0</google-cloud-bom.version>
         <azure-sdk-bom.version>1.3.8</azure-sdk-bom.version>
@@ -133,6 +134,23 @@
             <groupId>com.cronutils</groupId>
             <artifactId>cron-utils</artifactId>
             <version>${cron-utils.version}</version>
+        </dependency>
+
+        <!-- age encryption -->
+        <dependency>
+            <groupId>com.exceptionfactory.jagged</groupId>
+            <artifactId>jagged-framework</artifactId>
+            <version>${jagged.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.exceptionfactory.jagged</groupId>
+            <artifactId>jagged-x25519</artifactId>
+            <version>${jagged.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.exceptionfactory.jagged</groupId>
+            <artifactId>jagged-scrypt</artifactId>
+            <version>${jagged.version}</version>
         </dependency>
 
         <!-- Cloud storage -->

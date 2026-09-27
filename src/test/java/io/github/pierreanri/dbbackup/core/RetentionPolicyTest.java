@@ -21,7 +21,7 @@ class RetentionPolicyTest {
         Instant created = NOW.minus(Duration.ofDays(daysAgo));
         String id = BackupNaming.newId("app", created);
         return new BackupManifest(1, id, "app", DatabaseType.SQLITE, "app.db", null, BackupScope.FULL, List.of(),
-                Compression.GZIP, id + ".db.gz", 10, 20, "x", created, 1, "3", "1", "h");
+                Compression.GZIP, null, id + ".db.gz", 10, 20, "x", created, 1, "3", "1", "h");
     }
 
     private static List<BackupManifest> dailyBackups(int count) {

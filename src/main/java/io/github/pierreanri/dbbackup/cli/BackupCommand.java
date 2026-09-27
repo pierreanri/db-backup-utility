@@ -125,8 +125,8 @@ class BackupCommand extends BaseCommand {
         out().printf("Backup %s %s in %s%n", m.id(), status, FileUtils.humanDuration(result.durationMillis()));
         out().printf("  database:  %s (%s%s)%n", m.database(), m.databaseType(),
                 m.databaseName() != null ? " " + m.databaseName() : "");
-        out().printf("  size:      %s (raw %s, %s)%n", FileUtils.humanSize(m.sizeBytes()),
-                FileUtils.humanSize(m.rawSizeBytes()), m.compression());
+        out().printf("  size:      %s (raw %s, %s%s)%n", FileUtils.humanSize(m.sizeBytes()),
+                FileUtils.humanSize(m.rawSizeBytes()), m.compression(), m.encrypted() ? ", encrypted with age" : "");
         out().printf("  sha256:    %s%n", m.sha256());
         String label = "  stored:    ";
         for (TargetResult target : result.targets()) {

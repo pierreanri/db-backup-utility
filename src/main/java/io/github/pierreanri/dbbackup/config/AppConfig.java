@@ -15,6 +15,7 @@ import java.util.Optional;
  * @param defaults      default values
  * @param logging       logging settings
  * @param notifications notification channels
+ * @param encryption    encryption of backup files
  */
 public record AppConfig(
         Map<String, DatabaseConfig> databases,
@@ -22,7 +23,8 @@ public record AppConfig(
         List<ScheduleConfig> schedules,
         DefaultsConfig defaults,
         LoggingConfig logging,
-        NotificationsConfig notifications) {
+        NotificationsConfig notifications,
+        EncryptionConfig encryption) {
 
     public AppConfig {
         Map<String, DatabaseConfig> named = new LinkedHashMap<>();
@@ -35,10 +37,11 @@ public record AppConfig(
         defaults = defaults == null ? DefaultsConfig.EMPTY : defaults;
         logging = logging == null ? LoggingConfig.DEFAULT : logging;
         notifications = notifications == null ? NotificationsConfig.NONE : notifications;
+        encryption = encryption == null ? EncryptionConfig.NONE : encryption;
     }
 
     public static AppConfig empty() {
-        return new AppConfig(null, null, null, null, null, null);
+        return new AppConfig(null, null, null, null, null, null, null);
     }
 
     public DatabaseConfig database(String name) {

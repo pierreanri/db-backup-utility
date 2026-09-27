@@ -16,6 +16,7 @@ import io.github.pierreanri.dbbackup.config.DatabaseConfig;
  * @param tables         tables/collections to restore; all when empty
  * @param clean          drop existing objects before restoring
  * @param verify         verify the SHA-256 checksum before restoring
+ * @param identityFiles  extra age identity files used to decrypt encrypted backups
  * @param trigger        {@code cli} or another origin
  */
 public record RestoreJob(
@@ -27,10 +28,12 @@ public record RestoreJob(
         List<String> tables,
         boolean clean,
         boolean verify,
+        List<Path> identityFiles,
         String trigger) {
 
     public RestoreJob {
         tables = tables == null ? List.of() : List.copyOf(tables);
+        identityFiles = identityFiles == null ? List.of() : List.copyOf(identityFiles);
         trigger = trigger == null ? "cli" : trigger;
     }
 }

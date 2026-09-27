@@ -30,6 +30,7 @@ public final class ConfigValidator {
         validateSchedules(config, errors);
         validateLogging(config.logging(), errors);
         validateNotifications(config.notifications(), errors);
+        validateEncryption(config.encryption(), errors);
         return errors;
     }
 
@@ -167,6 +168,25 @@ public final class ConfigValidator {
         }
         if (logging.maxHistoryDays() != null && logging.maxHistoryDays() < 1) {
             errors.add("logging.maxHistoryDays must be positive");
+        }
+    }
+
+    private static void validateEncryption(EncryptionConfig encryption, List<String> errors) {
+        boolean hasRecipients = !encryption.recipients().isEmpty() || !isBlank(encryption.recipientsFile());
+        if (encryption.usesPassphrase() && hasRecipients) {
+            errors.add("encryption: use either recipients or a passphrase, not both (age allows a passphrase "
+                    + "only on its own)");
+        }
+        for (String recipient : encryption.recipients()) {
+            try {
+                io.github.pierreanri.dbbackup.crypto.AgeCrypto.validateRecipient(recipient);
+            } catch (IllegalArgumentException e) {
+                errors.add("encryption.recipients: " + e.getMessage());
+            }
+        }
+        Integer workFactor = encryption.scryptWorkFactor();
+        if (workFactor != null && (workFactor < 10 || workFactor > 22)) {
+            errors.add("encryption.scryptWorkFactor must be between 10 and 22");
         }
     }
 

@@ -110,6 +110,16 @@ logging:
   # maxFileSize: 10MB
   # maxHistoryDays: 30
 
+# Client-side encryption of backup files with age (https://age-encryption.org).
+# Create a key pair with 'dbbackup keygen -o ~/.dbbackup/backup.key', put the public key below and
+# keep the private key safe, ideally away from this machine: it is only needed to restore.
+# Encrypted files can also be decrypted with the standard 'age' tool.
+# encryption:
+#   recipients: [age1...]            # public keys backups are encrypted to
+#   # recipientsFile: ~/.dbbackup/recipients.txt
+#   # passphrase: ${BACKUP_PASSPHRASE}   # alternative to recipients (not both)
+#   identityFiles: [~/.dbbackup/backup.key]   # private keys used by 'restore' (or --identity FILE)
+
 notifications:
   # slack:
   #   webhookUrl: ${SLACK_WEBHOOK_URL}

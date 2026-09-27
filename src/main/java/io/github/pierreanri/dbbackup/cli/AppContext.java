@@ -101,7 +101,7 @@ public final class AppContext implements AutoCloseable {
     }
 
     public RestoreService restoreService() {
-        return new RestoreService(adapters, storages, activityLog, notifier, workDir, clock);
+        return new RestoreService(adapters, storages, config().encryption(), activityLog, notifier, workDir, clock);
     }
 
     @Override
