@@ -582,15 +582,17 @@ The CI workflow runs the unit tests on JDK 21 and 25 and the integration tests a
 
 1. Set the new version in `pom.xml` and describe it in a `## <version> - <date>` section of
    `CHANGELOG.md`.
-2. Once CI is green on `main`, tag the commit and push the tag:
+2. Once CI is green on `main`, either open **Actions → Release → Run workflow** on GitHub (branch
+   `main`), or tag the commit and push the tag:
 
    ```bash
    git tag -a v1.2.0 -m "dbbackup 1.2.0"
    git push origin v1.2.0
    ```
 
-The release workflow checks that the tag matches the project version, builds and tests the jar, packages
-it with `dev/package-release.sh` and publishes the GitHub release with the changelog section as notes.
+The release workflow checks that the tag matches the project version (when run from the Actions tab, it
+creates the tag on the current commit of `main`), builds and tests the jar, packages it with
+`dev/package-release.sh` and publishes the GitHub release with the changelog section as notes.
 
 ## Limitations and ideas
 

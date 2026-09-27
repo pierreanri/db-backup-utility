@@ -1,10 +1,12 @@
 name: Release
 
-# Pushing a tag vX.Y.Z builds, tests and publishes the GitHub release of version X.Y.Z. The tag must
-# match the version in pom.xml and CHANGELOG.md must have a section for it.
+# Builds, tests and publishes the GitHub release of the version in pom.xml, which needs a section in
+# CHANGELOG.md. Either push a tag vX.Y.Z matching that version, or run the workflow on main from the
+# Actions tab ("Run workflow"): it then creates the tag vX.Y.Z on the current commit.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -23,11 +25,21 @@ jobs:
       - name: Check the tag against the project version
         run: |
           version=$(mvn -B -ntp -q help:evaluate -Dexpression=project.version -DforceStdout)
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            if [ "$GITHUB_REF" != refs/heads/main ]; then
+              echo "::error::Run the release workflow on main, not on $GITHUB_REF_NAME"
+              exit 1
+            fi
+            if [ -n "$(git ls-remote --tags origin "refs/tags/v$version")" ]; then
+              echo "::error::Tag v$version already exists: set a new version in pom.xml first"
+              exit 1
+            fi
+          elif [ "v$version" != "$GITHUB_REF_NAME" ]; then
             echo "::error::Tag $GITHUB_REF_NAME does not match the project version $version"
             exit 1
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "TAG=v$version" >> "$GITHUB_ENV"
       - name: Build and test
         run: mvn -B -ntp verify
       - name: Package
@@ -43,7 +55,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          # When run from the Actions tab, the tag does not exist yet and is created on this commit.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            tag_option=(--target "$GITHUB_SHA")
+          else
+            tag_option=(--verify-tag)
+          fi
+          gh release create "$TAG" dist/* \
             --title "dbbackup $VERSION" \
             --notes-file target/release-notes.md \
-            --verify-tag
+            "${tag_option[@]}"
