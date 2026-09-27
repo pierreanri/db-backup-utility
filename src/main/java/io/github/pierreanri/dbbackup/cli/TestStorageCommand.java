@@ -10,9 +10,10 @@ import io.github.pierreanri.dbbackup.storage.StorageBackend;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 
-@Command(name = "test-storage",
-        description = "Check that storage targets are reachable and writable by writing, reading and deleting a%n"
-                + "small probe object. Tests every configured target when none is selected.")
+@Command(name = "test-storage", mixinStandardHelpOptions = true,
+        header = "Check that storage targets are reachable and writable.",
+        description = "Writes, reads back and deletes a small probe object on each storage target. "
+                + "Tests every configured target when none is selected.")
 class TestStorageCommand extends BaseCommand {
 
     @Mixin

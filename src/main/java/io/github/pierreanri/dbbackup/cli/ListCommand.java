@@ -15,8 +15,9 @@ import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
-@Command(name = "list", aliases = "ls",
-        description = "List the backups held by storage targets (all configured targets by default).")
+@Command(name = "list", aliases = "ls", mixinStandardHelpOptions = true,
+        header = "List backups.",
+        description = "Lists the backups held by the storage targets (all configured targets by default), newest first.")
 class ListCommand extends BaseCommand {
 
     @Parameters(paramLabel = "DATABASE", arity = "0..1", description = "Only list backups of this database profile.")

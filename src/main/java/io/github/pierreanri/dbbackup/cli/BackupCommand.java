@@ -22,13 +22,16 @@ import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
-@Command(name = "backup",
-        description = "Back up one or more databases.%n",
+@Command(name = "backup", mixinStandardHelpOptions = true, abbreviateSynopsis = true,
+        header = "Back up one or more databases.",
+        description = "Dumps each database, compresses the dump, uploads it with a manifest (metadata and SHA-256) "
+                + "to the storage targets and applies the retention rules.",
         footer = {"%nExamples:",
             "  dbbackup backup app",
             "  dbbackup backup --all --storage local,s3",
             "  dbbackup backup app --tables users,orders --compression xz",
-            "  dbbackup backup --db-type postgresql --db-name shop --db-user postgres --db-password-env PGPASS -o ./backups"})
+            "  dbbackup backup --db-type postgresql --db-name shop --db-user postgres \\",
+            "      --db-password-env PGPASS --output-dir ./backups"})
 class BackupCommand extends BaseCommand {
 
     @Parameters(paramLabel = "DATABASE", arity = "0..*", description = "Database profile(s) to back up.")

@@ -20,8 +20,10 @@ import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
-@Command(name = "prune",
-        description = "Delete expired backups according to the retention rules (or --keep-last/--max-age-days).")
+@Command(name = "prune", mixinStandardHelpOptions = true,
+        header = "Delete expired backups.",
+        description = "Applies the retention rules of the configuration (or --keep-last/--max-age-days) to every "
+                + "storage target. The most recent backup of a database is never deleted.")
 class PruneCommand extends BaseCommand {
 
     @Parameters(paramLabel = "DATABASE", arity = "0..*", description = "Database profile(s); all when omitted.")

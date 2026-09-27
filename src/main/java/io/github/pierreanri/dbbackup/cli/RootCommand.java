@@ -35,8 +35,9 @@ import picocli.CommandLine.Spec;
             ConfigCommand.class,
             CommandLine.HelpCommand.class
         },
-        footer = {"%nConfiguration is read from --config, $DBBACKUP_CONFIG, ./dbbackup.yml or ~/.dbbackup/config.yml.",
-            "Run 'dbbackup config init' to create an annotated example."})
+        footer = {"%nConfiguration is read from --config, $DBBACKUP_CONFIG, ./dbbackup.yml",
+            "or ~/.dbbackup/config.yml. Run 'dbbackup config init' to create an example.",
+            "Run 'dbbackup COMMAND --help' for the options of a command."})
 public class RootCommand implements Runnable {
 
     @Spec

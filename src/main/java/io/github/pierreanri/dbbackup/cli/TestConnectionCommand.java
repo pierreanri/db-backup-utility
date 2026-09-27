@@ -10,8 +10,9 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Parameters;
 
-@Command(name = "test-connection", aliases = "test",
-        description = "Check that databases are reachable with the configured credentials.%n"
+@Command(name = "test-connection", aliases = "test", mixinStandardHelpOptions = true, abbreviateSynopsis = true,
+        header = "Check that databases are reachable.",
+        description = "Connects to each database with the configured credentials and prints the server version. "
                 + "Tests every configured database when none is named.")
 class TestConnectionCommand extends BaseCommand {
 

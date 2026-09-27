@@ -14,7 +14,8 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
-@Command(name = "config", description = "Create or check the configuration file.",
+@Command(name = "config", mixinStandardHelpOptions = true, header = "Create or check the configuration file.",
+        description = "Creates an annotated example configuration or checks an existing one.",
         subcommands = {ConfigCommand.Init.class, ConfigCommand.Validate.class})
 class ConfigCommand implements Runnable {
 
@@ -26,7 +27,7 @@ class ConfigCommand implements Runnable {
         spec.commandLine().usage(spec.commandLine().getOut());
     }
 
-    @Command(name = "init", description = "Write an annotated example configuration file.")
+    @Command(name = "init", mixinStandardHelpOptions = true, description = "Write an annotated example configuration file.")
     static class Init extends BaseCommand {
 
         @Parameters(paramLabel = "FILE", arity = "0..1",
@@ -65,7 +66,7 @@ class ConfigCommand implements Runnable {
         }
     }
 
-    @Command(name = "validate", aliases = "check", description = "Check the configuration file for errors.")
+    @Command(name = "validate", aliases = "check", mixinStandardHelpOptions = true, description = "Check the configuration file for errors.")
     static class Validate extends BaseCommand {
 
         @Override

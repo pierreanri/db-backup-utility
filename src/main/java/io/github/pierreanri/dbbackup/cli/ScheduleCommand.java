@@ -31,7 +31,9 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.Spec;
 
-@Command(name = "schedule", description = "Run backups automatically from the 'schedules' of the configuration.",
+@Command(name = "schedule", mixinStandardHelpOptions = true,
+        header = "Run backups automatically.",
+        description = "Runs the backups declared in the 'schedules' section of the configuration.",
         subcommands = {ScheduleCommand.ListJobs.class, ScheduleCommand.Daemon.class, ScheduleCommand.RunJob.class,
             ScheduleCommand.Cron.class},
         footer = {"%nTwo ways to automate backups:",
@@ -74,7 +76,8 @@ class ScheduleCommand implements Runnable {
         return result;
     }
 
-    @Command(name = "list", aliases = "ls", description = "Show the configured schedules and their next run.")
+    @Command(name = "list", aliases = "ls", mixinStandardHelpOptions = true,
+            description = "Show the configured schedules and their next run.")
     static class ListJobs extends BaseCommand {
 
         @Override
@@ -102,7 +105,7 @@ class ScheduleCommand implements Runnable {
         }
     }
 
-    @Command(name = "daemon", aliases = "start",
+    @Command(name = "daemon", aliases = "start", mixinStandardHelpOptions = true,
             description = "Run the scheduler in the foreground until interrupted (Ctrl+C or SIGTERM).")
     static class Daemon extends BaseCommand {
 
@@ -137,7 +140,7 @@ class ScheduleCommand implements Runnable {
         }
     }
 
-    @Command(name = "run", description = "Run one scheduled job now (this is what the cron entries call).")
+    @Command(name = "run", mixinStandardHelpOptions = true, description = "Run one scheduled job now (this is what the cron entries call).")
     static class RunJob extends BaseCommand {
 
         @Parameters(paramLabel = "NAME", description = "Name of the schedule.")
@@ -156,7 +159,7 @@ class ScheduleCommand implements Runnable {
         }
     }
 
-    @Command(name = "cron", description = "Print (or install) crontab entries running the enabled schedules.")
+    @Command(name = "cron", mixinStandardHelpOptions = true, description = "Print (or install) crontab entries running the enabled schedules.")
     static class Cron extends BaseCommand {
 
         @Option(names = "--install", description = "Add or update the entries in the current user's crontab.")

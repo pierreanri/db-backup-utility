@@ -23,8 +23,10 @@ import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
-@Command(name = "restore",
-        description = "Restore a backup into a database.%n",
+@Command(name = "restore", mixinStandardHelpOptions = true, abbreviateSynopsis = true,
+        header = "Restore a backup into a database.",
+        description = "Downloads the backup, verifies its SHA-256 checksum, decompresses it and restores it. "
+                + "Searches every configured storage target unless --storage is given.",
         footer = {"%nExamples:",
             "  dbbackup restore latest --db app",
             "  dbbackup restore app-20260927T020000Z --target-database app_copy",

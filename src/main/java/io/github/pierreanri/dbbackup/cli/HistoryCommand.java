@@ -13,8 +13,9 @@ import io.github.pierreanri.dbbackup.util.Mappers;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
-@Command(name = "history", aliases = "log",
-        description = "Show the activity history (backups, restores and prunes).")
+@Command(name = "history", aliases = "log", mixinStandardHelpOptions = true,
+        header = "Show the activity history.",
+        description = "Shows the recorded backups, restores and prunes, oldest first.")
 class HistoryCommand extends BaseCommand {
 
     @Option(names = {"-n", "--limit"}, paramLabel = "N", defaultValue = "20",
