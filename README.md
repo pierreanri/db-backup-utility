@@ -343,8 +343,8 @@ Notes:
   matching tools, e.g. the MySQL 8.4 client for an 8.4 server.
 - MySQL binary logs cover the whole server: incremental backups contain the changes of every
   database, but only the backed up database is replayed on restore.
-- Replaying a MongoDB oplog right after the database was dropped may briefly hit a pending drop on
-  the server; dbbackup asks for a checkpoint and retries the (idempotent) replay.
+- Before replaying a MongoDB oplog, dbbackup removes the storage identifiers that MongoDB 8.3+ records
+  in collection and index creation entries, so that restoring right after dropping a database works.
 - Incremental backups need the state of their parent (binary log position, oplog timestamp, page
   fingerprints, PostgreSQL `backup_manifest`). It is stored unencrypted next to the backup so that
   encrypted incremental backups can be taken with only the public key.

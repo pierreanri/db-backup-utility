@@ -133,34 +133,6 @@ class MongoAdapterTest {
     }
 
     @Test
-    void retriesOplogReplaysWhileADropIsPending() throws Exception {
-        Path full = tmp.resolve("full.archive");
-        Path change = tmp.resolve("incr.oplog.tar");
-        java.nio.file.Files.createDirectories(tmp.resolve("pack/replay"));
-        java.nio.file.Files.createFile(tmp.resolve("pack/replay/oplog.bson"));
-        io.github.pierreanri.dbbackup.util.TarArchives.create(tmp.resolve("pack"), change);
-        int[] replays = {0};
-        int[] checkpoints = {0};
-        runner.onRun = spec -> {
-            if (spec.command().contains("--oplogReplay") && ++replays[0] < 3) {
-                runner.nextResult = new ProcessResult(1, "", "Failed: restore error: error applying oplog: applyOps: "
-                        + "(ObjectIsBusy) Pending drop is timestamped so ident may still be in use");
-            }
-        };
-        MongoAdapter retrying = new MongoAdapter(runner) {
-            @Override
-            protected void requestCheckpoint(DatabaseConfig config) {
-                checkpoints[0]++;
-            }
-        };
-
-        retrying.restoreChain(new RestoreRequest(db, null, "events", List.of(), false), full, List.of(change));
-
-        assertThat(replays[0]).isEqualTo(3);
-        assertThat(checkpoints[0]).isEqualTo(2);
-    }
-
-    @Test
     void incrementalChainsCannotBeRenamed() {
         assertThatThrownBy(() -> adapter.restoreChain(new RestoreRequest(db, "events_copy", "events", List.of(),
                 false), tmp.resolve("full"), List.of(tmp.resolve("incr"))))

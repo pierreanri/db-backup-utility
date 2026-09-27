@@ -51,7 +51,6 @@ public class MongoAdapter implements DatabaseAdapter {
     static final String OPLOG_TIME = "oplogTime";
     static final String OPLOG_INCREMENT = "oplogIncrement";
     private static final String DESCRIPTOR = "dbbackup-oplog.json";
-    private static final int REPLAY_ATTEMPTS = 8;
 
     private final ProcessRunner runner;
 
@@ -196,49 +195,14 @@ public class MongoAdapter implements DatabaseAdapter {
                         "--config=" + config));
                 command.addAll(connectionArgs(db));
                 command.addAll(List.of("--oplogReplay", "--dir=" + dir.resolve("replay")));
-                LOG.info("Replaying the oplog of {}", change.getFileName());
-                replayWithRetries(db, spec(command, db).timeoutMinutes(db.timeoutMinutes()).build());
+                int cleaned = OplogSanitizer.stripStorageIdentifiers(dir.resolve("replay").resolve("oplog.bson"));
+                LOG.info("Replaying the oplog of {}{}", change.getFileName(),
+                        cleaned == 0 ? "" : " (" + cleaned + " entries without their storage identifiers)");
+                runner.run(spec(command, db).timeoutMinutes(db.timeoutMinutes()).build());
             } finally {
                 SecretFiles.deleteQuietly(config);
                 FileUtils.deleteRecursively(dir);
             }
-        }
-    }
-
-    /**
-     * Runs an oplog replay. When a collection dropped just before is recreated, the server may
-     * report {@code ObjectIsBusy} until its pending drop is completed by a checkpoint: the replay,
-     * which is idempotent, is then retried after asking for a checkpoint.
-     */
-    private void replayWithRetries(DatabaseConfig db, ProcessSpec replay) {
-        long delay = 1000;
-        for (int attempt = 1; ; attempt++) {
-            ProcessResult result = runner.execute(replay);
-            if (result.exitCode() == 0) {
-                return;
-            }
-            if (!result.stderr().contains("ObjectIsBusy") || attempt >= REPLAY_ATTEMPTS) {
-                throw ProcessRunner.failure(replay, result);
-            }
-            LOG.warn("A collection is still being dropped by the server; retrying the oplog replay in {} s",
-                    delay / 1000);
-            requestCheckpoint(db);
-            try {
-                Thread.sleep(delay);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new DbBackupException("Interrupted while waiting to retry the oplog replay", e);
-            }
-            delay = Math.min(delay * 2, 30_000);
-        }
-    }
-
-    /** Asks the server to write a checkpoint, which completes pending drops (best effort). */
-    protected void requestCheckpoint(DatabaseConfig db) {
-        try (MongoClient client = openClient(db)) {
-            client.getDatabase("admin").runCommand(new Document("fsync", 1));
-        } catch (RuntimeException e) {
-            LOG.debug("Could not request a checkpoint: {}", e.getMessage());
         }
     }
 
