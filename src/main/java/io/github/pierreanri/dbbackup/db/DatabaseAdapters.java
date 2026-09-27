@@ -17,12 +17,11 @@ public class DatabaseAdapters {
 
     public DatabaseAdapter forType(DatabaseType type) {
         return switch (type) {
+            case MYSQL -> new MySqlAdapter(runner, false);
+            case MARIADB -> new MySqlAdapter(runner, true);
+            case POSTGRESQL -> new PostgresAdapter(runner);
+            case MONGODB -> new MongoAdapter(runner);
             case SQLITE -> new SqliteAdapter();
-            default -> throw new UnsupportedOperationException("No adapter for " + type + " yet");
         };
-    }
-
-    protected ProcessRunner runner() {
-        return runner;
     }
 }
