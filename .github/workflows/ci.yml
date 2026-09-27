@@ -54,6 +54,13 @@ jobs:
       DBBACKUP_IT_MONGO_PORT: '17017'
       DBBACKUP_IT_MONGO_USER: root
       DBBACKUP_IT_MONGO_PASSWORD: mongo-secret
+      DBBACKUP_IT_MONGO_RS_HOST: 127.0.0.1
+      DBBACKUP_IT_MONGO_RS_PORT: '27018'
+      DBBACKUP_IT_PG17_HOST: 127.0.0.1
+      DBBACKUP_IT_PG17_PORT: '15433'
+      DBBACKUP_IT_PG17_USER: postgres
+      DBBACKUP_IT_PG17_PASSWORD: pg-secret
+      DBBACKUP_IT_PG17_BIN: /usr/lib/postgresql/17/bin
       DBBACKUP_IT_S3_ENDPOINT: http://127.0.0.1:5000
       DBBACKUP_IT_GCS_ENDPOINT: http://127.0.0.1:4443
       DBBACKUP_IT_AZURE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;
@@ -67,9 +74,13 @@ jobs:
       - name: Start databases and storage emulators
         run: |
           docker run -d --name postgres -p 15432:5432 -e POSTGRES_PASSWORD=pg-secret postgres:16
+          docker run -d --name pg17 -p 15433:5432 -e POSTGRES_PASSWORD=pg-secret \
+            -v "$PWD/dev/pg-replication.sh:/docker-entrypoint-initdb.d/replication.sh:ro" \
+            postgres:17 -c summarize_wal=on
           docker run -d --name mysql -p 13306:3306 -e MYSQL_ROOT_PASSWORD=mysql-secret mysql:8.4
           docker run -d --name mongo -p 17017:27017 -e MONGO_INITDB_ROOT_USERNAME=root \
             -e MONGO_INITDB_ROOT_PASSWORD=mongo-secret mongo:8
+          docker run -d --name mongo-rs -p 27018:27017 mongo:8 --replSet rs0 --bind_ip_all
           docker run -d --name moto -p 5000:5000 motoserver/moto:latest
           docker run -d --name gcs -p 4443:4443 fsouza/fake-gcs-server:latest \
             -scheme http -port 4443 -backend memory -external-url http://127.0.0.1:4443
@@ -77,27 +88,42 @@ jobs:
             azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck --loose
       - name: Install client tools
         run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -sSf -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client mysql-client > /dev/null
+          sudo apt-get install -y -qq postgresql-client-16 postgresql-17 mysql-client mysql-server-core-8.0 age > /dev/null
+          sudo systemctl stop postgresql || true
           curl -sSL -o /tmp/mongo-tools.tgz \
             https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2404-x86_64-100.10.0.tgz
           mkdir -p /tmp/mongo-tools && tar -xzf /tmp/mongo-tools.tgz -C /tmp/mongo-tools --strip-components=1
           echo "DBBACKUP_IT_MONGO_BIN=/tmp/mongo-tools/bin" >> "$GITHUB_ENV"
-          pg_dump --version; mysqldump --version; /tmp/mongo-tools/bin/mongodump --version | head -1
+          pg_dump --version; /usr/lib/postgresql/17/bin/pg_basebackup --version; mysqldump --version
+          mysqlbinlog --version; age --version; /tmp/mongo-tools/bin/mongodump --version | head -1
       - name: Wait for the services
         run: |
           for i in $(seq 1 60); do
             PGPASSWORD=pg-secret pg_isready -h 127.0.0.1 -p 15432 -U postgres > /dev/null 2>&1 \
               && mysqladmin ping -h 127.0.0.1 -P 13306 -uroot -pmysql-secret --silent > /dev/null 2>&1 \
+              && PGPASSWORD=pg-secret pg_isready -h 127.0.0.1 -p 15433 -U postgres > /dev/null 2>&1 \
               && docker exec mongo mongosh --quiet -u root -p mongo-secret --eval 'db.runCommand({ping:1})' > /dev/null 2>&1 \
+              && docker exec mongo-rs mongosh --quiet --eval 'db.runCommand({ping:1})' > /dev/null 2>&1 \
               && curl -sf http://127.0.0.1:5000/ > /dev/null \
               && curl -sf http://127.0.0.1:4443/storage/v1/b > /dev/null \
               && break
             sleep 2
+          done
+          docker exec mongo-rs mongosh --quiet --eval \
+            'rs.initiate({_id: "rs0", members: [{_id: 0, host: "127.0.0.1:27017"}]})'
+          for i in $(seq 1 30); do
+            docker exec mongo-rs mongosh --quiet --eval 'db.hello().isWritablePrimary' | grep -q true && break
+            sleep 1
           done
           docker ps
       - name: Run all tests including integration tests
         run: mvn -B -ntp verify
       - name: Show container logs on failure
         if: failure()
-        run: for c in postgres mysql mongo moto gcs azurite; do echo "== $c"; docker logs --tail 50 $c; done
+        run: for c in postgres pg17 mysql mongo mongo-rs moto gcs azurite; do echo "== $c"; docker logs --tail 50 $c; done

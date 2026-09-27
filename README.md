@@ -3,14 +3,15 @@
 [![CI](https://github.com/pierreanri/db-backup-utility/actions/workflows/ci.yml/badge.svg)](https://github.com/pierreanri/db-backup-utility/actions/workflows/ci.yml)
 
 `dbbackup` is a command-line utility to back up and restore **MySQL/MariaDB**, **PostgreSQL**,
-**MongoDB** and **SQLite** databases. Backups are compressed, checksummed and stored locally or in the
-cloud (**Amazon S3** and S3-compatible services, **Google Cloud Storage**, **Azure Blob Storage**). The
+**MongoDB** and **SQLite** databases. Backups are full, **incremental** or **differential**,
+compressed, optionally **encrypted with age**, checksummed and stored locally or in the cloud
+(**Amazon S3** and S3-compatible services, **Google Cloud Storage**, **Azure Blob Storage**). The
 utility can run backups on a schedule, apply retention rules, log everything it does and notify you
 when something goes wrong.
 
 ```text
 $ dbbackup backup shop
-Backup shop-20260927T020000Z completed in 2.1 s
+Full backup shop-20260927T020000Z completed in 2.1 s
   database:  shop (postgresql shop)
   size:      8.8 MiB (raw 61.5 MiB, gzip)
   sha256:    44e93859b24478ffdab79392f1fd0632d17be3920852c3a1bdcee4cf492581ef
@@ -28,6 +29,8 @@ Backup shop-20260927T020000Z completed in 2.1 s
 - [Commands](#commands)
 - [Configuration](#configuration)
 - [Storage targets](#storage-targets)
+- [Incremental and differential backups](#incremental-and-differential-backups)
+- [Encryption](#encryption)
 - [Scheduling](#scheduling)
 - [Logging and history](#logging-and-history)
 - [Notifications](#notifications)
@@ -41,8 +44,12 @@ Backup shop-20260927T020000Z completed in 2.1 s
 - **Databases**: MySQL, MariaDB, PostgreSQL, MongoDB and SQLite, through a common adapter interface.
 - **Connection testing** before every operation, and on demand with `dbbackup test-connection`.
 - **Full logical backups**, optionally restricted to some tables/collections or to the schema/data only.
+- **Incremental and differential backups** using each engine's native mechanism: MySQL/MariaDB binary
+  logs, MongoDB oplog, PostgreSQL 17 incremental base backups, SQLite page changes.
 - **Compression**: gzip (default), bzip2, xz or none. A SHA-256 checksum is recorded for every backup
   and verified before restoring.
+- **Encryption** with [age](https://age-encryption.org): to public keys (the backup machine never needs
+  the private key) or with a passphrase; files can be decrypted with the standard `age` tool.
 - **Storage**: local directory, Amazon S3 and S3-compatible services (MinIO, Ceph, Wasabi, Cloudflare R2,
   Backblaze B2...), Google Cloud Storage, Azure Blob Storage. A backup can go to several targets at once.
 - **Restore** by id or `latest`, from any target or from a local file, into the original or another
@@ -62,8 +69,8 @@ Backup shop-20260927T020000Z completed in 2.1 s
 
 | Database        | Tools used                                         | Package examples                                          |
 |-----------------|----------------------------------------------------|-----------------------------------------------------------|
-| PostgreSQL      | `pg_dump`, `pg_restore`, `psql`                    | `postgresql-client` (use a version ≥ the server's)        |
-| MySQL / MariaDB | `mysqldump`, `mysql` (or `mariadb-dump`, `mariadb`) | `mysql-client`, `mariadb-client`                          |
+| PostgreSQL      | `pg_dump`, `pg_restore`, `psql`; for incremental backups `pg_basebackup`, `pg_combinebackup`, `pg_verifybackup` (17+) | `postgresql-client` (use a version ≥ the server's) |
+| MySQL / MariaDB | `mysqldump`, `mysql`, `mysqlbinlog` (or `mariadb-dump`, `mariadb`, `mariadb-binlog`) | `mysql-client`, `mariadb-client` (`mysqlbinlog` is in `mysql-server-core` on Debian/Ubuntu) |
 | MongoDB         | `mongodump`, `mongorestore`                        | [MongoDB Database Tools](https://www.mongodb.com/try/download/database-tools) |
 | SQLite          | none (built in)                                    |                                                           |
 
@@ -137,6 +144,7 @@ Run `dbbackup COMMAND --help` for every option. Global options, usable before or
 | `prune [DATABASE...]` | Delete expired backups according to the retention rules. `--dry-run` shows what would go. |
 | `history` | Show the activity history. `-n 50`, `--database app`, `--failed`, `--json`. |
 | `schedule list \| daemon \| run NAME \| cron` | Scheduling, see [Scheduling](#scheduling). |
+| `keygen [-o FILE]` | Generate an age key pair for [encryption](#encryption). |
 | `config init [FILE] \| validate` | Write the example configuration, or check a configuration file. |
 
 ### `backup`
@@ -147,6 +155,7 @@ dbbackup backup --all                                  # every configured databa
 dbbackup backup app shop --storage local,s3            # several databases and targets
 dbbackup backup app --tables users,orders -C xz        # selected tables, xz compression
 dbbackup backup app --schema-only                      # schema only (or --data-only)
+dbbackup backup app --type incremental                 # changes since the previous backup (or differential)
 dbbackup backup app --keep-last 3                      # retention override for this run
 dbbackup backup app --no-retention --json              # keep everything, print the manifest as JSON
 dbbackup backup app --db-host replica.internal         # override profile settings on the command line
@@ -163,7 +172,12 @@ dbbackup restore latest --db app --target-database app_copy  # into another data
 dbbackup restore latest --db app --tables users --clean      # only some tables, dropping them first
 dbbackup restore latest --db app --storage s3                # read from a specific target
 dbbackup restore --file ./app-20260927T020000Z.dump.gz --db app
+dbbackup restore latest --db app --identity ~/keys/backup.key # encrypted backup, key kept elsewhere
+dbbackup restore latest --db pg-cluster --target-dir /srv/pg-restored   # PostgreSQL physical backup
 ```
+
+Restoring an incremental or differential backup restores its whole chain (the full backup and the
+backups in between) automatically.
 
 Restores ask for confirmation; use `-y/--yes` in scripts. The backup's checksum is verified before
 anything is changed (`--no-verify` skips this). Selective restore (`--tables`) is supported for
@@ -201,6 +215,7 @@ databases:
     # dumpArgs: ["--exclude-table=audit_log"]   # extra arguments for the dump tool
     # restoreArgs: ["--no-owner"]               # extra arguments for the restore tool
     # timeoutMinutes: 60
+    # incremental: true                         # enable incremental/differential backups
   shop-mysql:
     type: mysql
     host: 127.0.0.1
@@ -238,6 +253,10 @@ logging:
   dir: ~/.dbbackup/logs
   level: INFO
 
+encryption:
+  recipients: [age1...]
+  identityFiles: [~/.dbbackup/backup.key]
+
 notifications:
   slack:
     webhookUrl: ${SLACK_WEBHOOK_URL}
@@ -245,6 +264,9 @@ notifications:
 
 Retention precedence: command line (`--keep-last`, `--max-age-days`) or schedule, then the storage
 target's `retention`, then `defaults.retention`. The most recent backup of a database is never deleted.
+With incremental backups, `keepLast` counts full backups and a chain (a full backup and the backups
+based on it) is kept or deleted as a whole; a chain expires with `maxAgeDays` once its most recent
+backup is older than that.
 
 ## Storage targets
 
@@ -279,6 +301,70 @@ storage:
 
 Large files are uploaded in parts (S3 multipart upload streamed from disk, GCS resumable upload,
 Azure block upload). Buckets and containers must exist; `dbbackup test-storage` checks access.
+
+## Incremental and differential backups
+
+A **full** backup is self-contained. An **incremental** backup contains the changes since the
+previous backup of its chain; a **differential** backup contains the changes since the last full
+backup. Restoring an incremental backup applies the full backup and every incremental backup up to
+it; restoring a differential backup only needs the full backup and itself.
+
+Enable them per database with `incremental: true`, then:
+
+```bash
+dbbackup backup app                          # full backup, starts a chain
+dbbackup backup app --type incremental       # changes since the previous backup
+dbbackup backup app --type differential      # changes since the full backup
+dbbackup list app                            # BACKUP column: full, incr <- parent, diff <- parent
+dbbackup restore latest --db app             # restores the whole chain
+```
+
+Schedules take a `type` too, for example daily incremental backups and a weekly full backup. When
+there is no full backup to build on (first run, or the last full backup was taken before
+`incremental: true`), an incremental request takes a full backup instead. Every storage target must
+hold the parent backup: a target that does not (for example a newly added one) fails for this run.
+
+Each engine uses its native change tracking:
+
+| Engine | Full backup | Incremental / differential | Server requirements | Restore |
+|--------|-------------|----------------------------|---------------------|---------|
+| MySQL / MariaDB | `mysqldump --source-data=2` records the binary log position | raw binary logs since the parent's position (`FLUSH BINARY LOGS` + `mysqlbinlog --read-from-remote-server --raw`) | binary logging enabled (`log_bin`, default in MySQL 8); privileges `RELOAD`, `REPLICATION CLIENT`, `REPLICATION SLAVE` (and `BINLOG_ADMIN` or equivalent to replay row events) | dump, then the binary logs replayed for the backed up database only, renamed with `--rewrite-db` for `--target-database` |
+| MongoDB | `mongodump`, recording the latest oplog timestamp | oplog entries since the parent's timestamp for the backed up database | a replica set (a single-node one is fine) and read access to `local.oplog.rs`; the oplog must still cover the previous backup | archive, then `mongorestore --oplogReplay`; incremental chains restore under the original database name |
+| PostgreSQL | physical `pg_basebackup` of the whole server | `pg_basebackup --incremental` against the parent's `backup_manifest` | PostgreSQL 17+ with `summarize_wal = on`, a user with the `REPLICATION` attribute and a `replication` line in `pg_hba.conf` | `--target-dir DIR`: rebuilds a data directory with `pg_combinebackup` and checks it with `pg_verifybackup`; stop PostgreSQL, point it to that directory (owned by the server's user, mode 0700) and start it |
+| SQLite | online backup + fingerprint of every page | only the pages that changed | none | rebuilds the exact database file, then restores it (selected tables too) |
+
+Notes:
+- With `incremental: true`, PostgreSQL backups are **physical** copies of the whole server (all
+  databases), even the full ones; `--tables`, `--schema-only` and `--target-database` do not apply.
+  Clusters with extra tablespaces are not supported.
+- MySQL binary logs cover the whole server: incremental backups contain the changes of every
+  database, but only the backed up database is replayed on restore.
+- Incremental backups need the state of their parent (binary log position, oplog timestamp, page
+  fingerprints, PostgreSQL `backup_manifest`). It is stored unencrypted next to the backup so that
+  encrypted incremental backups can be taken with only the public key.
+
+## Encryption
+
+Backups are encrypted with [age](https://age-encryption.org) when an `encryption` section is present:
+
+```bash
+dbbackup keygen -o ~/.dbbackup/backup.key    # prints the public key (age1...)
+```
+
+```yaml
+encryption:
+  recipients: [age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p]
+  # recipientsFile: ~/.dbbackup/recipients.txt     # one public key per line
+  # passphrase: ${BACKUP_PASSPHRASE}                # instead of recipients (scrypt)
+  identityFiles: [~/.dbbackup/backup.key]           # private keys used to restore
+```
+
+- Files are compressed, then encrypted: `app-20260927T020000Z.dump.gz.age`. The manifest records
+  `"encryption": "age"` and the checksum of the encrypted file, so integrity is verified before
+  decrypting.
+- Encrypting to public keys means the machine taking backups only needs the public key: keep the
+  identity file offline and pass it to `dbbackup restore --identity FILE` when needed.
+- Encrypted backups are standard age files: `age -d -i backup.key app-...dump.gz.age | gunzip | ...`.
 
 ## Scheduling
 
@@ -376,15 +462,25 @@ shop/shop-20260927T020000Z.manifest.json    # written last: its presence marks a
 | MySQL / MariaDB | SQL script from `mysqldump --single-transaction` (routines, triggers and events included) | `.sql` |
 | MongoDB | `mongodump --archive` | `.archive` |
 | SQLite | SQLite database file from the online backup API (consistent while in use) | `.db` |
+| MySQL / MariaDB incremental | tar of raw binary logs and a descriptor | `.binlog.tar` |
+| MongoDB incremental | tar of the oplog entries (`replay/oplog.bson`) and a descriptor | `.oplog.tar` |
+| PostgreSQL physical | tar of a `pg_basebackup` data directory (full or incremental) | `.base.tar`, `.incr.tar` |
+| SQLite incremental | changed pages | `.pages` |
+
+Compressed files get `.gz`, `.bz2` or `.xz`, and encrypted ones `.age`. Incremental chains also keep
+a `<id>.state.gz` file next to their backups.
 
 ```json
 {
-  "formatVersion" : 1,
+  "formatVersion" : 2,
   "id" : "shop-20260927T020000Z",
   "database" : "shop",
   "databaseType" : "postgresql",
   "databaseName" : "shop",
   "host" : "db.internal",
+  "backupType" : "full",
+  "method" : "logical",
+  "checkpoint" : { },
   "scope" : "full",
   "tables" : [ ],
   "compression" : "gzip",
@@ -395,12 +491,16 @@ shop/shop-20260927T020000Z.manifest.json    # written last: its presence marks a
   "createdAt" : "2026-09-27T02:00:00Z",
   "durationMillis" : 1874,
   "serverVersion" : "PostgreSQL 16.4",
-  "toolVersion" : "1.0.0",
+  "toolVersion" : "1.1.0",
   "hostname" : "backup-01"
 }
 ```
 
-Backups are regular files: they can be restored without `dbbackup`, e.g.
+Incremental and differential backups also record `parentId` (the backup they are based on),
+`baseId` (the full backup of their chain), the engine specific `checkpoint` and `stateFile`, and
+encrypted backups have `"encryption" : "age"`. Manifests of version 1 are still read.
+
+Full backups are regular files: they can be restored without `dbbackup`, e.g.
 `gunzip -c shop-...dump.gz | pg_restore -d shop`, `gunzip -c blog-...sql.gz | mysql blog` or
 `gunzip -c events-...archive.gz | mongorestore --archive`.
 
@@ -413,8 +513,10 @@ Backups are regular files: they can be restored without `dbbackup`, e.g.
   `0600` permissions.
 - Use a dedicated database user with read-only privileges for backups (plus the rights needed to
   restore, if the same profile is used for restores).
-- Backups are not encrypted by dbbackup: rely on the storage's encryption at rest (S3 SSE, GCS and
-  Azure default encryption) and restrict access to the backup location.
+- Enable [encryption](#encryption) for backups stored outside your infrastructure, ideally with public
+  keys so that the backup machine cannot decrypt them. Incremental chain states (positions and page or
+  file fingerprints) stay unencrypted. Also rely on the storage's encryption at rest and restrict access
+  to the backup location.
 
 ## Development
 
@@ -430,6 +532,7 @@ Project layout (`src/main/java/io/github/pierreanri/dbbackup/`):
 | `config` | YAML configuration model, loader (env interpolation) and validation |
 | `db` | database adapters (MySQL/MariaDB, PostgreSQL, MongoDB, SQLite) and the external process runner |
 | `compression` | gzip/bzip2/xz streams and SHA-256 checksums |
+| `crypto` | age encryption and key generation |
 | `storage` | local, S3, GCS and Azure backends |
 | `core` | backup and restore pipelines, manifests, catalog, retention |
 | `scheduling` | cron parsing, scheduler daemon, crontab generation |
@@ -451,7 +554,9 @@ mvn verify
 |-----------|---------|
 | `DBBACKUP_IT_PG_HOST`, `_PORT`, `_USER`, `_PASSWORD` | PostgreSQL |
 | `DBBACKUP_IT_MYSQL_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_MARIADB` | MySQL or MariaDB |
+| `DBBACKUP_IT_PG17_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_BIN` | PostgreSQL 17+ physical backups (`summarize_wal = on`, replication allowed) |
 | `DBBACKUP_IT_MONGO_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_BIN` | MongoDB |
+| `DBBACKUP_IT_MONGO_RS_HOST`, `_PORT` | MongoDB replica set (oplog incrementals) |
 | `DBBACKUP_IT_S3_ENDPOINT`, `_BUCKET`, `_REGION`, `_ACCESS_KEY`, `_SECRET_KEY` | S3 / MinIO / moto |
 | `DBBACKUP_IT_GCS_ENDPOINT`, `_BUCKET`, `_PROJECT`, `_CREDENTIALS` | GCS / fake-gcs-server |
 | `DBBACKUP_IT_AZURE_CONNECTION_STRING`, `DBBACKUP_IT_AZURE_CONTAINER` | Azure / Azurite |
@@ -460,10 +565,13 @@ The CI workflow runs the unit tests on JDK 21 and 25 and the integration tests a
 
 ## Limitations and ideas
 
-- Backups are full logical dumps. Incremental and differential backups (PostgreSQL WAL archiving or
-  `pg_basebackup --incremental`, MySQL binary logs, MongoDB oplog) are not implemented yet.
 - MySQL backups cannot be restored table by table (back up the tables separately instead) and
   `mongodump` backs up a single collection at a time when `--tables` is used.
-- Client-side encryption of backups (e.g. age or AES-GCM) would be a useful addition.
+- Incremental backups cover whole databases (whole servers for PostgreSQL). MongoDB incremental chains
+  restore under the original database name, and PostgreSQL physical restores produce a data directory
+  that you swap in yourself.
+- MariaDB incremental backups use the same binary log mechanism with the MariaDB tools but are not
+  covered by the automated tests, which run against MySQL.
+- Point-in-time recovery (replaying logs up to a given time) would be a natural next step.
 - The target database of a restore is created when missing for MySQL and PostgreSQL; with MongoDB it
   is created implicitly.
