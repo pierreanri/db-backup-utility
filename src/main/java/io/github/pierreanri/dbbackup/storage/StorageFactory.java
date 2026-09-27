@@ -16,8 +16,8 @@ public class StorageFactory {
         return switch (config) {
             case LocalStorageConfig local -> new LocalStorage(name, PathUtils.expand(local.path()));
             case S3StorageConfig s3 -> new S3Storage(name, s3);
-            case GcsStorageConfig gcs -> throw new StorageException("Google Cloud Storage is not available yet");
-            case AzureStorageConfig azure -> throw new StorageException("Azure Blob Storage is not available yet");
+            case GcsStorageConfig gcs -> new GcsStorage(name, gcs);
+            case AzureStorageConfig azure -> new AzureBlobStorage(name, azure);
         };
     }
 }

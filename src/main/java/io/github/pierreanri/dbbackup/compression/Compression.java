@@ -12,8 +12,9 @@ import java.util.zip.GZIPOutputStream;
 
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
-import org.apache.commons.compress.compressors.xz.XZCompressorInputStream;
-import org.apache.commons.compress.compressors.xz.XZCompressorOutputStream;
+import org.tukaani.xz.LZMA2Options;
+import org.tukaani.xz.XZInputStream;
+import org.tukaani.xz.XZOutputStream;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
@@ -54,7 +55,7 @@ public enum Compression {
             case NONE -> out;
             case GZIP -> new GZIPOutputStream(out, BUFFER);
             case BZIP2 -> new BZip2CompressorOutputStream(out);
-            case XZ -> new XZCompressorOutputStream(out, 6);
+            case XZ -> new XZOutputStream(out, new LZMA2Options(LZMA2Options.PRESET_DEFAULT));
         };
     }
 
@@ -63,7 +64,7 @@ public enum Compression {
             case NONE -> in;
             case GZIP -> new GZIPInputStream(in, BUFFER);
             case BZIP2 -> new BZip2CompressorInputStream(in, true);
-            case XZ -> new XZCompressorInputStream(in, true);
+            case XZ -> new XZInputStream(in);
         };
     }
 
