@@ -1,0 +1,30 @@
+#!/usr/bin/env sh
+# Launcher for the dbbackup CLI. Looks for dbbackup.jar next to this script, in ../target
+# (after `mvn package`) or in ../lib, and runs it with the first java found.
+set -e
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+if [ -n "$DBBACKUP_JAR" ]; then
+    JAR="$DBBACKUP_JAR"
+else
+    for candidate in "$SCRIPT_DIR/dbbackup.jar" "$SCRIPT_DIR/../lib/dbbackup.jar" "$SCRIPT_DIR/../target/dbbackup.jar"; do
+        if [ -f "$candidate" ]; then
+            JAR="$candidate"
+            break
+        fi
+    done
+fi
+
+if [ -z "$JAR" ]; then
+    echo "dbbackup: cannot find dbbackup.jar (build it with 'mvn package' or set DBBACKUP_JAR)" >&2
+    exit 1
+fi
+
+if [ -n "$JAVA_HOME" ]; then
+    JAVA="$JAVA_HOME/bin/java"
+else
+    JAVA=java
+fi
+
+exec "$JAVA" $DBBACKUP_JAVA_OPTS -jar "$JAR" "$@"

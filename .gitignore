@@ -1,0 +1,23 @@
+# Build output
+target/
+*.class
+dependency-reduced-pom.xml
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local runtime data (configs may contain secrets)
+dbbackup.yml
+dbbackup.yaml
+.dbbackup/
+backups/
+*.log
