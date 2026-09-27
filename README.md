@@ -38,6 +38,7 @@ Full backup shop-20260927T020000Z completed in 2.1 s
 - [Security](#security)
 - [Development](#development)
 - [Limitations and ideas](#limitations-and-ideas)
+- [Copyright](#copyright)
 
 ## Features
 
@@ -606,3 +607,9 @@ creates the tag on the current commit of `main`), builds and tests the jar, pack
 - Point-in-time recovery (replaying logs up to a given time) would be a natural next step.
 - The target database of a restore is created when missing for MySQL and PostgreSQL; with MongoDB it
   is created implicitly.
+
+## Copyright
+
+Copyright (c) 2026 [pierreanri](https://github.com/pierreanri). All rights reserved. This project is not
+open source: no license is granted to use, copy, modify or distribute it without permission (see
+[LICENSE](LICENSE)).

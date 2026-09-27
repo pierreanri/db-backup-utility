@@ -1,3 +1,5 @@
+# Copyright (c) 2026 pierreanri (https://github.com/pierreanri). All rights reserved.
+# No license is granted to use, copy, modify or distribute this file without permission.
 # Environment for the integration tests against the services of docker-compose.yml:
 #   source dev/integration-env.sh && mvn verify
 # The client tools (pg_dump, mysqldump, mysqlbinlog, mongodump...) must be installed locally;

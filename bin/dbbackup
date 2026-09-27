@@ -1,4 +1,6 @@
 #!/usr/bin/env sh
+# Copyright (c) 2026 pierreanri (https://github.com/pierreanri). All rights reserved.
+# No license is granted to use, copy, modify or distribute this file without permission.
 # Launcher for the dbbackup CLI. Looks for dbbackup.jar next to this script, in ../lib or in
 # ../target (after `mvn package`), and runs it with the first java found. Symbolic links to the
 # script are followed, so it can be linked from a directory in the PATH.
