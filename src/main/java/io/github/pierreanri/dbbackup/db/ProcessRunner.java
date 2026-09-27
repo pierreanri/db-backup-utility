@@ -29,6 +29,25 @@ public class ProcessRunner {
      * @throws DbBackupException when the program is missing, times out or exits with a non-zero code
      */
     public ProcessResult run(ProcessSpec spec) {
+        ProcessResult result = execute(spec);
+        if (result.exitCode() != 0) {
+            throw failure(spec, result);
+        }
+        return result;
+    }
+
+    /** The error reported for a failed command. */
+    public static DbBackupException failure(ProcessSpec spec, ProcessResult result) {
+        String detail = result.stderr().isBlank() ? "" : ": " + result.stderr().strip();
+        return new DbBackupException("'" + spec.program() + "' failed with exit code " + result.exitCode() + detail);
+    }
+
+    /**
+     * Runs the command and waits for it, returning its result whatever the exit code.
+     *
+     * @throws DbBackupException when the program is missing or times out
+     */
+    public ProcessResult execute(ProcessSpec spec) {
         ProcessBuilder builder = new ProcessBuilder(spec.command());
         builder.environment().putAll(spec.environment());
         if (spec.stdin() != null) {
@@ -79,12 +98,7 @@ public class ProcessRunner {
         }
 
         String errorOutput = Secrets.redact(stderr.text(), spec.secrets().toArray(String[]::new));
-        ProcessResult result = new ProcessResult(exitCode, stdout == null ? "" : stdout.text(), errorOutput);
-        if (exitCode != 0) {
-            String detail = errorOutput.isBlank() ? "" : ": " + errorOutput.strip();
-            throw new DbBackupException("'" + spec.program() + "' failed with exit code " + exitCode + detail);
-        }
-        return result;
+        return new ProcessResult(exitCode, stdout == null ? "" : stdout.text(), errorOutput);
     }
 
     private static void kill(Process process) {

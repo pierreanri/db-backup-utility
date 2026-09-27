@@ -20,6 +20,9 @@ class RecordingRunner extends ProcessRunner {
     final List<ProcessSpec> specs = new ArrayList<>();
     final Map<String, String> credentialFiles = new LinkedHashMap<>();
     final Deque<String> outputs = new ArrayDeque<>();
+    /** Optional side effect simulating what the tool writes. */
+    java.util.function.Consumer<ProcessSpec> onRun = spec -> {
+    };
 
     RecordingRunner respond(String stdout) {
         outputs.add(stdout);
@@ -27,8 +30,9 @@ class RecordingRunner extends ProcessRunner {
     }
 
     @Override
-    public ProcessResult run(ProcessSpec spec) {
+    public ProcessResult execute(ProcessSpec spec) {
         specs.add(spec);
+        onRun.accept(spec);
         for (String arg : spec.command()) {
             for (String prefix : List.of("--defaults-extra-file=", "--config=")) {
                 if (arg.startsWith(prefix)) {

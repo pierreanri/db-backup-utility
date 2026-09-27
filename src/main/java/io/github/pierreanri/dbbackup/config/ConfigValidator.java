@@ -60,7 +60,8 @@ public final class ConfigValidator {
                 }
             }
             case MYSQL, MARIADB, POSTGRESQL -> {
-                if (isBlank(db.database())) {
+                boolean physical = db.type() == DatabaseType.POSTGRESQL && db.isIncremental();
+                if (isBlank(db.database()) && !physical) {
                     errors.add(where + ".database is required for " + db.type() + " databases");
                 }
             }

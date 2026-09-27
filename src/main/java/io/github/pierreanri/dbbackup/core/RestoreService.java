@@ -117,6 +117,10 @@ public class RestoreService {
                 throw new DbBackupException("Backup " + manifest.id() + " is a physical backup: restore it into a "
                         + "directory with --target-dir");
             }
+            if (!physical && job.targetDirectory() != null) {
+                throw new DbBackupException("--target-dir is only used for physical backups (PostgreSQL with "
+                        + "'incremental: true')");
+            }
             if (db.type() != DatabaseType.SQLITE && !physical) {
                 LOG.info("Checking connection to {}", db.describe());
                 adapter.testConnection(db);
