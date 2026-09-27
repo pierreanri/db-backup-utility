@@ -94,6 +94,11 @@ public record DatabaseConfig(
                 newBinPath, dumpArgs, restoreArgs, timeoutMinutes);
     }
 
+    public DatabaseConfig withTimeoutMinutes(Integer newTimeoutMinutes) {
+        return new DatabaseConfig(name, type, host, port, username, password, database, uri, file, authDatabase,
+                binPath, dumpArgs, restoreArgs, newTimeoutMinutes);
+    }
+
     public String effectiveHost() {
         return host == null || host.isBlank() ? "localhost" : host;
     }

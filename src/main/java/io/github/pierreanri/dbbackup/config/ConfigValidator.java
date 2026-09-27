@@ -5,6 +5,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import io.github.pierreanri.dbbackup.compression.Compression;
 import io.github.pierreanri.dbbackup.db.DatabaseType;
@@ -13,6 +14,9 @@ import io.github.pierreanri.dbbackup.db.DatabaseType;
  * Semantic validation of a parsed configuration. Returns human readable problems.
  */
 public final class ConfigValidator {
+
+    /** Profile names are used in storage keys and on the command line. */
+    public static final Pattern NAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
 
     private ConfigValidator() {
     }
@@ -29,6 +33,9 @@ public final class ConfigValidator {
 
     private static void validateDatabase(String name, DatabaseConfig db, List<String> errors) {
         String where = "databases." + name;
+        if (!NAME.matcher(name).matches()) {
+            errors.add(where + ": invalid name (use letters, digits, '.', '_' and '-')");
+        }
         if (db == null) {
             errors.add(where + ": empty definition");
             return;
@@ -62,6 +69,9 @@ public final class ConfigValidator {
 
     private static void validateStorage(String name, StorageConfig storage, List<String> errors) {
         String where = "storage." + name;
+        if (!NAME.matcher(name).matches()) {
+            errors.add(where + ": invalid name (use letters, digits, '.', '_' and '-')");
+        }
         if (storage == null) {
             errors.add(where + ": empty definition");
             return;
