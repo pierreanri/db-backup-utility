@@ -1,9 +1,18 @@
 #!/usr/bin/env sh
-# Launcher for the dbbackup CLI. Looks for dbbackup.jar next to this script, in ../target
-# (after `mvn package`) or in ../lib, and runs it with the first java found.
+# Launcher for the dbbackup CLI. Looks for dbbackup.jar next to this script, in ../lib or in
+# ../target (after `mvn package`), and runs it with the first java found. Symbolic links to the
+# script are followed, so it can be linked from a directory in the PATH.
 set -e
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SCRIPT="$0"
+while [ -h "$SCRIPT" ]; do
+    LINK=$(readlink "$SCRIPT")
+    case "$LINK" in
+        /*) SCRIPT="$LINK" ;;
+        *) SCRIPT="$(dirname -- "$SCRIPT")/$LINK" ;;
+    esac
+done
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SCRIPT")" && pwd)
 
 if [ -n "$DBBACKUP_JAR" ]; then
     JAR="$DBBACKUP_JAR"

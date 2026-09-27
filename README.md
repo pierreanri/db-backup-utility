@@ -76,28 +76,37 @@ Full backup shop-20260927T020000Z completed in 2.1 s
 
 ## Installation
 
-Build the self-contained executable jar with Maven:
+Download `dbbackup-<version>.tar.gz` and `SHA256SUMS` from the
+[latest release](https://github.com/pierreanri/db-backup-utility/releases/latest) and install it for
+your user:
+
+```bash
+sha256sum -c --ignore-missing SHA256SUMS
+mkdir -p ~/.local/opt ~/.local/bin
+tar -xzf dbbackup-1.1.0.tar.gz -C ~/.local/opt
+ln -sf ~/.local/opt/dbbackup-1.1.0/bin/dbbackup ~/.local/bin/dbbackup
+dbbackup --version
+```
+
+The archive holds the `bin/dbbackup` launcher, the jar and an example configuration. The jar alone
+also works (`java -jar dbbackup.jar --help`), and the latest one is always at
+<https://github.com/pierreanri/db-backup-utility/releases/latest/download/dbbackup.jar>.
+
+To build it from source instead:
 
 ```bash
 git clone https://github.com/pierreanri/db-backup-utility.git
 cd db-backup-utility
 mvn package                  # add -DskipTests to skip the tests
 bin/dbbackup --version       # or: java -jar target/dbbackup.jar --version
+mkdir -p ~/.local/bin && ln -sf "$PWD/bin/dbbackup" ~/.local/bin/dbbackup
 ```
 
 Every CI run on `main` also publishes the jar as the `dbbackup-jar` artifact.
 
-To install it for your user:
-
-```bash
-mkdir -p ~/.local/lib/dbbackup ~/.local/bin
-cp target/dbbackup.jar ~/.local/lib/dbbackup/
-cp bin/dbbackup ~/.local/lib/dbbackup/
-ln -s ~/.local/lib/dbbackup/dbbackup ~/.local/bin/dbbackup
-```
-
-The `bin/dbbackup` launcher looks for `dbbackup.jar` next to itself, in `../lib` or in `../target`
-(or in `$DBBACKUP_JAR`), uses `$JAVA_HOME` when set and passes `$DBBACKUP_JAVA_OPTS` to the JVM.
+The `bin/dbbackup` launcher follows symbolic links to itself, looks for `dbbackup.jar` next to itself,
+in `../lib` or in `../target` (or in `$DBBACKUP_JAR`), uses `$JAVA_HOME` when set and passes
+`$DBBACKUP_JAVA_OPTS` to the JVM.
 
 ## Quick start
 
@@ -568,6 +577,20 @@ mvn verify
 | `DBBACKUP_IT_AZURE_CONNECTION_STRING`, `DBBACKUP_IT_AZURE_CONTAINER` | Azure / Azurite |
 
 The CI workflow runs the unit tests on JDK 21 and 25 and the integration tests against containers.
+
+### Releasing
+
+1. Set the new version in `pom.xml` and describe it in a `## <version> - <date>` section of
+   `CHANGELOG.md`.
+2. Once CI is green on `main`, tag the commit and push the tag:
+
+   ```bash
+   git tag -a v1.2.0 -m "dbbackup 1.2.0"
+   git push origin v1.2.0
+   ```
+
+The release workflow checks that the tag matches the project version, builds and tests the jar, packages
+it with `dev/package-release.sh` and publishes the GitHub release with the changelog section as notes.
 
 ## Limitations and ideas
 
