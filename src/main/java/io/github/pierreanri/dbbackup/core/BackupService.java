@@ -115,7 +115,7 @@ public class BackupService {
             for (StorageBackend target : targets) {
                 results.add(store(target, stored, manifest, manifestJson, job));
             }
-            BackupResult result = new BackupResult(manifest, results);
+            BackupResult result = new BackupResult(manifest, results, clock.millis() - start.toEpochMilli());
             record(job, db, manifest, result, start, null);
             return result;
         } catch (IOException e) {

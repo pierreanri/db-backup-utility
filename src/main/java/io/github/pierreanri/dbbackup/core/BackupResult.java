@@ -5,10 +5,11 @@ import java.util.List;
 /**
  * Outcome of a backup.
  *
- * @param manifest the backup's manifest
- * @param targets  per storage target outcome
+ * @param manifest       the backup's manifest
+ * @param targets        per storage target outcome
+ * @param durationMillis total duration including uploads and retention
  */
-public record BackupResult(BackupManifest manifest, List<TargetResult> targets) {
+public record BackupResult(BackupManifest manifest, List<TargetResult> targets, long durationMillis) {
 
     public BackupResult {
         targets = List.copyOf(targets);

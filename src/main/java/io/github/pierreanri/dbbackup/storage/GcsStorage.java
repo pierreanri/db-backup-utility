@@ -54,6 +54,11 @@ public class GcsStorage implements StorageBackend {
     }
 
     @Override
+    public String description() {
+        return "gs://" + config.bucket() + "/" + prefix;
+    }
+
+    @Override
     public String location(String key) {
         return "gs://" + config.bucket() + "/" + fullKey(key);
     }

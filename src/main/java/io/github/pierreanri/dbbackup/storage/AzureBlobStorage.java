@@ -49,9 +49,14 @@ public class AzureBlobStorage implements StorageBackend {
     }
 
     @Override
-    public String location(String key) {
+    public String description() {
         String account = config.accountName() != null ? config.accountName() + "/" : "";
-        return "azure://" + account + config.container() + "/" + fullKey(key);
+        return "azure://" + account + config.container() + "/" + prefix;
+    }
+
+    @Override
+    public String location(String key) {
+        return description() + Keys.check(key);
     }
 
     @Override
@@ -59,7 +64,7 @@ public class AzureBlobStorage implements StorageBackend {
         try {
             blob(key).uploadFromFile(source.toString(), true);
         } catch (RuntimeException e) {
-            throw new StorageException("Upload to " + location(key) + " failed: " + e.getMessage(), e);
+            throw new StorageException("Upload to " + location(key) + " failed: " + describe(e), e);
         }
     }
 
@@ -69,9 +74,9 @@ public class AzureBlobStorage implements StorageBackend {
             blob(key).downloadToFile(target.toString(), true);
         } catch (BlobStorageException e) {
             throw new StorageException(e.getStatusCode() == 404 ? "Not found: " + location(key)
-                    : "Download of " + location(key) + " failed: " + e.getMessage(), e);
+                    : "Download of " + location(key) + " failed: " + describe(e), e);
         } catch (RuntimeException e) {
-            throw new StorageException("Download of " + location(key) + " failed: " + e.getMessage(), e);
+            throw new StorageException("Download of " + location(key) + " failed: " + describe(e), e);
         }
     }
 
@@ -81,7 +86,7 @@ public class AzureBlobStorage implements StorageBackend {
             return blob(key).downloadContent().toBytes();
         } catch (BlobStorageException e) {
             throw new StorageException(e.getStatusCode() == 404 ? "Not found: " + location(key)
-                    : "Download of " + location(key) + " failed: " + e.getMessage(), e);
+                    : "Download of " + location(key) + " failed: " + describe(e), e);
         }
     }
 
@@ -90,7 +95,7 @@ public class AzureBlobStorage implements StorageBackend {
         try {
             blob(key).upload(BinaryData.fromBytes(content), true);
         } catch (RuntimeException e) {
-            throw new StorageException("Upload to " + location(key) + " failed: " + e.getMessage(), e);
+            throw new StorageException("Upload to " + location(key) + " failed: " + describe(e), e);
         }
     }
 
@@ -108,7 +113,7 @@ public class AzureBlobStorage implements StorageBackend {
             }
         } catch (RuntimeException e) {
             throw new StorageException("Listing " + config.container() + "/" + fullPrefix + " failed: "
-                    + e.getMessage(), e);
+                    + describe(e), e);
         }
         return objects;
     }
@@ -118,7 +123,7 @@ public class AzureBlobStorage implements StorageBackend {
         try {
             blob(key).deleteIfExists();
         } catch (RuntimeException e) {
-            throw new StorageException("Deleting " + location(key) + " failed: " + e.getMessage(), e);
+            throw new StorageException("Deleting " + location(key) + " failed: " + describe(e), e);
         }
     }
 
@@ -127,8 +132,17 @@ public class AzureBlobStorage implements StorageBackend {
         try {
             return blob(key).exists();
         } catch (RuntimeException e) {
-            throw new StorageException("Checking " + location(key) + " failed: " + e.getMessage(), e);
+            throw new StorageException("Checking " + location(key) + " failed: " + describe(e), e);
         }
+    }
+
+    /** Azure error messages embed the whole XML response; keep the error code instead. */
+    static String describe(RuntimeException e) {
+        if (e instanceof BlobStorageException blobError) {
+            String code = blobError.getErrorCode() != null ? blobError.getErrorCode().toString() : "error";
+            return code + " (HTTP " + blobError.getStatusCode() + ")";
+        }
+        return e.getMessage();
     }
 
     private BlobClient blob(String key) {

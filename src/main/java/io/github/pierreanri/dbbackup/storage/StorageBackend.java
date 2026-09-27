@@ -17,6 +17,9 @@ public interface StorageBackend extends AutoCloseable {
     /** Short type identifier: local, s3, gcs or azure. */
     String type();
 
+    /** Root location of the backend, e.g. {@code s3://bucket/prefix/}. */
+    String description();
+
     /** Full location of a key, e.g. {@code s3://bucket/prefix/key}. */
     String location(String key);
 

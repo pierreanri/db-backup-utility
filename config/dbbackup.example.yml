@@ -1,0 +1,123 @@
+# dbbackup configuration
+#
+# Location: --config FILE, $DBBACKUP_CONFIG, ./dbbackup.yml or ~/.dbbackup/config.yml
+#
+# Any string value can reference environment variables: ${NAME} or ${NAME:-default}.
+# Keep passwords and keys out of this file by using variables, and keep the file private
+# (chmod 600) if it contains secrets.
+
+# Values used when a command or schedule does not set them.
+defaults:
+  compression: gzip            # gzip | bzip2 | xz | none
+  storage: [local]             # storage target(s) used when --storage is not given
+  retention:                   # deleted after each successful backup (see also 'dbbackup prune')
+    keepLast: 7                # keep the 7 most recent backups of each database...
+    maxAgeDays: 30             # ...and delete backups older than 30 days
+  # workDir: /var/tmp/dbbackup # where dumps are written before upload (default: system temp dir)
+  # timeoutMinutes: 240        # abort dumps/restores that take longer
+
+# Database profiles. The key (e.g. "app-postgres") is the name used on the command line.
+databases:
+  app-postgres:
+    type: postgresql           # mysql | mariadb | postgresql | mongodb | sqlite
+    host: localhost
+    port: 5432
+    username: backup
+    password: ${PGPASSWORD}
+    database: app
+    # binPath: /usr/lib/postgresql/16/bin   # where pg_dump/pg_restore/psql live if not on PATH
+    # dumpArgs: ["--exclude-table=audit_log"]
+    # restoreArgs: ["--no-owner"]
+
+  shop-mysql:
+    type: mysql
+    host: 127.0.0.1
+    port: 3306
+    username: backup
+    password: ${MYSQL_BACKUP_PASSWORD}
+    database: shop
+
+  events-mongo:
+    type: mongodb
+    uri: mongodb://backup:${MONGO_PASSWORD}@localhost:27017/?authSource=admin
+    database: events           # omit to back up every database of the server
+
+  cache-sqlite:
+    type: sqlite
+    file: /var/lib/myapp/cache.db
+
+# Where backups are stored. Backups land in <root or prefix>/<database>/<database>-<timestamp>.<ext>
+# next to a <...>.manifest.json file with metadata and a SHA-256 checksum.
+storage:
+  local:
+    type: local
+    path: ~/.dbbackup/backups
+
+  s3:
+    type: s3
+    bucket: my-company-backups
+    prefix: databases/prod
+    region: eu-west-1
+    # Credentials: accessKeyId/secretAccessKey, a named profile, or the default AWS chain
+    # (environment variables, ~/.aws/credentials, instance/container roles).
+    # accessKeyId: ${AWS_ACCESS_KEY_ID}
+    # secretAccessKey: ${AWS_SECRET_ACCESS_KEY}
+    # profile: backups
+    # storageClass: STANDARD_IA
+    # For MinIO and other S3-compatible services:
+    # endpoint: http://localhost:9000
+    # pathStyle: true
+    retention:
+      keepLast: 30             # overrides defaults.retention for this target
+
+  # gcs:
+  #   type: gcs
+  #   bucket: my-company-backups
+  #   prefix: databases/prod
+  #   credentialsFile: ~/.config/gcloud/backup-sa.json   # or Application Default Credentials
+  #   projectId: my-project
+
+  # azure:
+  #   type: azure
+  #   container: backups
+  #   prefix: databases/prod
+  #   connectionString: ${AZURE_STORAGE_CONNECTION_STRING}
+  #   # or: accountName: myaccount + accountKey: ${AZURE_STORAGE_KEY} (or sasToken: ...)
+
+# Recurring backups, run by 'dbbackup schedule daemon' or by cron ('dbbackup schedule cron').
+schedules:
+  - name: nightly-postgres
+    database: app-postgres
+    cron: "0 2 * * *"          # minute hour day-of-month month day-of-week, or @hourly/@daily/@weekly/@monthly
+    storage: [local, s3]
+    compression: xz
+
+  - name: hourly-shop
+    database: shop-mysql
+    cron: "@hourly"
+    retention:
+      keepLast: 48
+
+  - name: weekly-schema
+    database: app-postgres
+    cron: "30 3 * * 0"
+    scope: schema-only         # full | schema-only | data-only
+    enabled: false
+
+logging:
+  dir: ~/.dbbackup/logs        # dbbackup.log (rotated) and history.jsonl (activity history)
+  level: INFO                  # level of the log file
+  # maxFileSize: 10MB
+  # maxHistoryDays: 30
+
+notifications:
+  # slack:
+  #   webhookUrl: ${SLACK_WEBHOOK_URL}
+  #   onSuccess: false
+  #   onFailure: true
+  # webhook:
+  #   url: https://example.com/hooks/backups
+  #   headers:
+  #     Authorization: Bearer ${WEBHOOK_TOKEN}
+  #   onSuccess: true
+  #   onFailure: true

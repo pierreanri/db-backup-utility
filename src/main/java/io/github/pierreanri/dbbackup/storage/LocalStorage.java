@@ -43,6 +43,11 @@ public class LocalStorage implements StorageBackend {
     }
 
     @Override
+    public String description() {
+        return root.toString();
+    }
+
+    @Override
     public String location(String key) {
         return resolve(key).toString();
     }

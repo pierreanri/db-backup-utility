@@ -230,6 +230,14 @@
                     <include>dbbackup-version.properties</include>
                 </includes>
             </resource>
+            <resource>
+                <!-- shipped in the jar for 'dbbackup config init' -->
+                <directory>config</directory>
+                <filtering>false</filtering>
+                <includes>
+                    <include>dbbackup.example.yml</include>
+                </includes>
+            </resource>
         </resources>
 
         <plugins>

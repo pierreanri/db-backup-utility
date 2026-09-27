@@ -90,6 +90,11 @@ public class S3Storage implements StorageBackend {
     }
 
     @Override
+    public String description() {
+        return "s3://" + config.bucket() + "/" + prefix;
+    }
+
+    @Override
     public String location(String key) {
         return "s3://" + config.bucket() + "/" + fullKey(key);
     }
