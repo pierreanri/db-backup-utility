@@ -5,7 +5,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -162,9 +161,7 @@ public final class ConfigLoader {
 
     private JsonNode interpolate(JsonNode node, String location, List<String> warnings) {
         if (node instanceof ObjectNode object) {
-            Iterator<Map.Entry<String, JsonNode>> fields = object.fields();
-            List<Map.Entry<String, JsonNode>> entries = new ArrayList<>();
-            fields.forEachRemaining(entries::add);
+            List<Map.Entry<String, JsonNode>> entries = new ArrayList<>(object.properties());
             for (Map.Entry<String, JsonNode> entry : entries) {
                 String childLocation = location.isEmpty() ? entry.getKey() : location + "." + entry.getKey();
                 object.set(entry.getKey(), interpolate(entry.getValue(), childLocation, warnings));
