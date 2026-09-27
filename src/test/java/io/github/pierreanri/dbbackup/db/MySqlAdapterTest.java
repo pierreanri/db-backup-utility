@@ -3,8 +3,11 @@ package io.github.pierreanri.dbbackup.db;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -83,6 +86,55 @@ class MySqlAdapterTest {
         runner.respond("10.11.6-MariaDB-0ubuntu0.24.04.1\n");
         assertThat(new MySqlAdapter(runner, true).testConnection(db)).isEqualTo("MariaDB 10.11.6-MariaDB-0ubuntu0.24.04.1");
         assertThat(runner.lastCommand()).contains("SELECT VERSION()");
+    }
+
+    @Test
+    void fullBackupsOfIncrementalDatabasesRecordTheBinlogPosition() throws IOException {
+        Path out = Files.writeString(tmp.resolve("shop.sql"), "-- MySQL dump\n"
+                + "-- CHANGE REPLICATION SOURCE TO SOURCE_LOG_FILE='binlog.000012', SOURCE_LOG_POS=4711;\n");
+        runner.respond("  --source-data[=#]   This causes the binary log position");
+
+        DumpResult result = adapter.backup(BackupRequest.full(db.withIncremental(true)), out);
+
+        assertThat(runner.specs.get(0).command()).containsExactly(runner.specs.get(0).command().get(0), "--help");
+        assertThat(runner.lastCommand()).contains("--source-data=2");
+        assertThat(result.checkpoint()).containsEntry("binlogFile", "binlog.000012")
+                .containsEntry("binlogPosition", "4711");
+        assertThat(MySqlAdapter.binlogPosition(Files.writeString(tmp.resolve("maria.sql"),
+                "-- CHANGE MASTER TO MASTER_LOG_FILE='mysql-bin.000002', MASTER_LOG_POS=328;\n")))
+                .containsExactly("mysql-bin.000002", "328");
+    }
+
+    @Test
+    void failsWhenTheDumpHasNoBinlogPosition() throws IOException {
+        Path out = Files.writeString(tmp.resolve("shop.sql"), "-- MySQL dump\n");
+        assertThatThrownBy(() -> adapter.backup(BackupRequest.full(db.withIncremental(true)), out))
+                .isInstanceOf(DbBackupException.class)
+                .hasMessageContaining("binary logging (log_bin)");
+    }
+
+    @Test
+    void incrementalBackupsCopyTheBinaryLogsSinceTheCheckpoint() throws IOException {
+        runner.respond("").respond("binlog.000011\t180\tNo\nbinlog.000012\t9000\tNo\nbinlog.000013\t157\tNo\n")
+                .respond("");
+        Path out = tmp.resolve("incr.binlog.tar");
+
+        DumpResult result = adapter.backupChanges(new ChangesRequest(db.withIncremental(true), BackupType.INCREMENTAL,
+                Map.of("binlogFile", "binlog.000012", "binlogPosition", "4711"), null, "logical"), out);
+
+        assertThat(runner.specs.get(0).command()).contains("FLUSH BINARY LOGS");
+        assertThat(runner.specs.get(1).command()).contains("SHOW BINARY LOGS");
+        List<String> copy = runner.lastCommand();
+        assertThat(copy.get(0)).endsWith("mysqlbinlog");
+        assertThat(copy).contains("--read-from-remote-server", "--raw").endsWith("binlog.000012");
+        assertThat(result.checkpoint()).containsEntry("binlogFile", "binlog.000013").containsEntry("binlogPosition", "4");
+        assertThat(out).exists();
+
+        runner.respond("").respond("binlog.000013\t157\tNo\nbinlog.000014\t157\tNo\n");
+        assertThatThrownBy(() -> adapter.backupChanges(new ChangesRequest(db, BackupType.INCREMENTAL,
+                Map.of("binlogFile", "binlog.000012", "binlogPosition", "4"), null, "logical"), tmp.resolve("x")))
+                .isInstanceOf(DbBackupException.class)
+                .hasMessageContaining("binlog.000012 is no longer available");
     }
 
     @Test

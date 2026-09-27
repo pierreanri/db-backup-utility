@@ -92,6 +92,53 @@ class MySqlIntegrationTest {
     }
 
     @Test
+    void incrementalChainsReplayTheBinaryLogs() {
+        DatabaseConfig incremental = db.withIncremental(true);
+        String other = db.database() + "_other";
+        createdDatabases.add(other);
+        sql(null, "CREATE DATABASE " + other);
+        sql(other, "CREATE TABLE products (id INT PRIMARY KEY, name VARCHAR(50), price DECIMAL(8,2))");
+
+        Path full = tmp.resolve("full.sql");
+        DumpResult fullResult = adapter.backup(BackupRequest.full(incremental), full);
+        assertThat(fullResult.checkpoint()).containsKeys("binlogFile", "binlogPosition");
+
+        sql(db.database(), "INSERT INTO products(name, price) VALUES ('lamp', 20.00), ('desk', 150.00)");
+        sql(other, "INSERT INTO products VALUES (1, 'not mine', 1.00)");
+        Path incr1 = tmp.resolve("incr1.binlog.tar");
+        DumpResult first = adapter.backupChanges(new ChangesRequest(incremental, BackupType.INCREMENTAL,
+                fullResult.checkpoint(), null, "logical"), incr1);
+
+        sql(db.database(), "UPDATE products SET price = price * 2; DELETE FROM products WHERE name = 'pen';"
+                + "CREATE TABLE audit (msg TEXT); INSERT INTO audit VALUES ('created after the full backup')");
+        Path incr2 = tmp.resolve("incr2.binlog.tar");
+        adapter.backupChanges(new ChangesRequest(incremental, BackupType.INCREMENTAL, first.checkpoint(), null,
+                "logical"), incr2);
+        Path diff = tmp.resolve("diff.binlog.tar");
+        adapter.backupChanges(new ChangesRequest(incremental, BackupType.DIFFERENTIAL, fullResult.checkpoint(), null,
+                "logical"), diff);
+
+        String expected = sql(db.database(), "SELECT GROUP_CONCAT(CONCAT(name, '=', price) ORDER BY id) FROM products");
+        assertThat(expected).isEqualTo("book=24.00,mug=14.50,lamp=40.00,desk=300.00");
+
+        String viaIncrementals = db.database() + "_r1";
+        createdDatabases.add(viaIncrementals);
+        adapter.restoreChain(new RestoreRequest(incremental, viaIncrementals, db.database(), List.of(), false), full,
+                List.of(incr1, incr2));
+        assertThat(sql(viaIncrementals, "SELECT GROUP_CONCAT(CONCAT(name, '=', price) ORDER BY id) FROM products"))
+                .isEqualTo(expected);
+        assertThat(sql(viaIncrementals, "SELECT msg FROM audit")).isEqualTo("created after the full backup");
+
+        String viaDifferential = db.database() + "_r2";
+        createdDatabases.add(viaDifferential);
+        adapter.restoreChain(new RestoreRequest(incremental, viaDifferential, db.database(), List.of(), false), full,
+                List.of(diff));
+        assertThat(sql(viaDifferential, "SELECT GROUP_CONCAT(CONCAT(name, '=', price) ORDER BY id) FROM products"))
+                .isEqualTo(expected);
+        assertThat(sql(other, "SELECT COUNT(*) FROM products")).isEqualTo("1");
+    }
+
+    @Test
     void reportsAuthenticationErrorsWithoutLeakingPassword() {
         DatabaseConfig wrong = db.withCredentials(db.username(), "definitely-wrong-password");
         assertThatThrownBy(() -> adapter.testConnection(wrong))
