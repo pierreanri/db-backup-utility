@@ -94,14 +94,20 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client-16 postgresql-17 mysql-client mysql-server-core-8.0 age > /dev/null
+          sudo apt-get install -y -qq postgresql-client-16 postgresql-17 mysql-client age > /dev/null
           sudo systemctl stop postgresql || true
           curl -sSL -o /tmp/mongo-tools.tgz \
             https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2404-x86_64-100.10.0.tgz
           mkdir -p /tmp/mongo-tools && tar -xzf /tmp/mongo-tools.tgz -C /tmp/mongo-tools --strip-components=1
           echo "DBBACKUP_IT_MONGO_BIN=/tmp/mongo-tools/bin" >> "$GITHUB_ENV"
-          pg_dump --version; /usr/lib/postgresql/17/bin/pg_basebackup --version; mysqldump --version
-          mysqlbinlog --version; age --version; /tmp/mongo-tools/bin/mongodump --version | head -1
+          # binary log positions need client tools from the same release series as the server (8.4)
+          curl -sSL -o /tmp/mysql84.tar.xz \
+            https://dev.mysql.com/get/Downloads/MySQL-8.4/mysql-8.4.8-linux-glibc2.28-x86_64-minimal.tar.xz
+          mkdir -p /tmp/mysql84 && tar -xJf /tmp/mysql84.tar.xz -C /tmp/mysql84 --strip-components=1
+          echo "DBBACKUP_IT_MYSQL_BIN=/tmp/mysql84/bin" >> "$GITHUB_ENV"
+          pg_dump --version; /usr/lib/postgresql/17/bin/pg_basebackup --version
+          /tmp/mysql84/bin/mysqldump --version; /tmp/mysql84/bin/mysqlbinlog --version
+          age --version; /tmp/mongo-tools/bin/mongodump --version | head -1
       - name: Wait for the services
         run: |
           for i in $(seq 1 60); do

@@ -337,8 +337,14 @@ Notes:
 - With `incremental: true`, PostgreSQL backups are **physical** copies of the whole server (all
   databases), even the full ones; `--tables`, `--schema-only` and `--target-database` do not apply.
   Clusters with extra tablespaces are not supported.
+- MySQL full backups record the binary log position with `mysqldump --source-data`, which only works
+  with client tools from the same release series as the server (MySQL 8.4 removed
+  `SHOW MASTER STATUS`, and older servers do not know `SHOW BINARY LOG STATUS`): point `binPath` to
+  matching tools, e.g. the MySQL 8.4 client for an 8.4 server.
 - MySQL binary logs cover the whole server: incremental backups contain the changes of every
   database, but only the backed up database is replayed on restore.
+- Replaying a MongoDB oplog right after the database was dropped may briefly hit a pending drop on
+  the server; dbbackup asks for a checkpoint and retries the (idempotent) replay.
 - Incremental backups need the state of their parent (binary log position, oplog timestamp, page
   fingerprints, PostgreSQL `backup_manifest`). It is stored unencrypted next to the backup so that
   encrypted incremental backups can be taken with only the public key.
@@ -553,7 +559,7 @@ mvn verify
 | Variables | Service |
 |-----------|---------|
 | `DBBACKUP_IT_PG_HOST`, `_PORT`, `_USER`, `_PASSWORD` | PostgreSQL |
-| `DBBACKUP_IT_MYSQL_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_MARIADB` | MySQL or MariaDB |
+| `DBBACKUP_IT_MYSQL_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_BIN`, `_MARIADB` | MySQL or MariaDB (`_BIN`: client tools matching the server) |
 | `DBBACKUP_IT_PG17_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_BIN` | PostgreSQL 17+ physical backups (`summarize_wal = on`, replication allowed) |
 | `DBBACKUP_IT_MONGO_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_BIN` | MongoDB |
 | `DBBACKUP_IT_MONGO_RS_HOST`, `_PORT` | MongoDB replica set (oplog incrementals) |

@@ -20,6 +20,8 @@ class RecordingRunner extends ProcessRunner {
     final List<ProcessSpec> specs = new ArrayList<>();
     final Map<String, String> credentialFiles = new LinkedHashMap<>();
     final Deque<String> outputs = new ArrayDeque<>();
+    /** Result returned by the next command instead of a success, set by {@link #onRun}. */
+    ProcessResult nextResult;
     /** Optional side effect simulating what the tool writes. */
     java.util.function.Consumer<ProcessSpec> onRun = spec -> {
     };
@@ -43,6 +45,11 @@ class RecordingRunner extends ProcessRunner {
                     }
                 }
             }
+        }
+        if (nextResult != null) {
+            ProcessResult result = nextResult;
+            nextResult = null;
+            return result;
         }
         return new ProcessResult(0, outputs.isEmpty() ? "" : outputs.poll(), "");
     }

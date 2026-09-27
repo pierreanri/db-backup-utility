@@ -22,7 +22,8 @@ import io.github.pierreanri.dbbackup.config.DatabaseConfig;
 /**
  * Runs mysqldump/mysql against a real MySQL or MariaDB server. Enabled when
  * {@code DBBACKUP_IT_MYSQL_HOST} is set (plus optional {@code _PORT}, {@code _USER},
- * {@code _PASSWORD}; set {@code DBBACKUP_IT_MYSQL_MARIADB=true} for MariaDB tools).
+ * {@code _PASSWORD}, and {@code _BIN} for the directory of client tools matching the server; set
+ * {@code DBBACKUP_IT_MYSQL_MARIADB=true} for MariaDB tools).
  */
 @Tag("integration")
 @EnabledIfEnvironmentVariable(named = "DBBACKUP_IT_MYSQL_HOST", matches = ".+")
@@ -44,7 +45,8 @@ class MySqlIntegrationTest {
                 .withHost(System.getenv("DBBACKUP_IT_MYSQL_HOST"))
                 .withPort(Integer.valueOf(env("DBBACKUP_IT_MYSQL_PORT", "3306")))
                 .withCredentials(env("DBBACKUP_IT_MYSQL_USER", "root"), System.getenv("DBBACKUP_IT_MYSQL_PASSWORD"))
-                .withDatabase(name);
+                .withDatabase(name)
+                .withBinPath(System.getenv("DBBACKUP_IT_MYSQL_BIN"));
         createdDatabases.add(name);
         sql(null, "CREATE DATABASE " + name);
         sql(name, "CREATE TABLE products (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(50), price DECIMAL(8,2));"

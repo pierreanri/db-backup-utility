@@ -96,7 +96,17 @@ public class MySqlAdapter implements DatabaseAdapter {
             command.addAll(request.tables());
 
             LOG.info("Dumping {} database '{}' with {}", label(), db.database(), Path.of(command.get(0)).getFileName());
-            runner.run(spec(command, db).timeoutMinutes(db.timeoutMinutes()).build());
+            ProcessSpec dump = spec(command, db).timeoutMinutes(db.timeoutMinutes()).build();
+            ProcessResult result = runner.execute(dump);
+            if (result.exitCode() != 0) {
+                if (startsChain && result.stderr().matches("(?s).*(MASTER|BINARY LOG) STATUS.*syntax.*")) {
+                    throw new DbBackupException("mysqldump cannot read the binary log position of this server: "
+                            + "incremental backups need client tools from the same release series as the server "
+                            + "(MySQL 8.4 removed SHOW MASTER STATUS, older servers lack SHOW BINARY LOG STATUS). "
+                            + "Set 'binPath' to matching tools. " + ProcessRunner.failure(dump, result).getMessage());
+                }
+                throw ProcessRunner.failure(dump, result);
+            }
             if (!startsChain) {
                 return DumpResult.NONE;
             }

@@ -106,6 +106,21 @@ class MySqlAdapterTest {
     }
 
     @Test
+    void explainsMismatchedClientTools() {
+        runner.respond("--source-data");
+        runner.onRun = spec -> {
+            if (spec.command().stream().anyMatch(arg -> arg.startsWith("--result-file="))) {
+                runner.nextResult = new ProcessResult(2, "", "mysqldump: Couldn't execute 'SHOW MASTER STATUS': You have "
+                        + "an error in your SQL syntax; check the manual (1064)");
+            }
+        };
+        assertThatThrownBy(() -> adapter.backup(BackupRequest.full(db.withIncremental(true)), tmp.resolve("x.sql")))
+                .isInstanceOf(DbBackupException.class)
+                .hasMessageContaining("same release series as the server")
+                .hasMessageContaining("SHOW MASTER STATUS");
+    }
+
+    @Test
     void failsWhenTheDumpHasNoBinlogPosition() throws IOException {
         Path out = Files.writeString(tmp.resolve("shop.sql"), "-- MySQL dump\n");
         assertThatThrownBy(() -> adapter.backup(BackupRequest.full(db.withIncremental(true)), out))
