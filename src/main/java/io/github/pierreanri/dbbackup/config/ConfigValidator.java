@@ -29,6 +29,7 @@ public final class ConfigValidator {
         validateDefaults(config, errors);
         validateSchedules(config, errors);
         validateLogging(config.logging(), errors);
+        validateNotifications(config.notifications(), errors);
         return errors;
     }
 
@@ -166,6 +167,29 @@ public final class ConfigValidator {
         }
         if (logging.maxHistoryDays() != null && logging.maxHistoryDays() < 1) {
             errors.add("logging.maxHistoryDays must be positive");
+        }
+    }
+
+    private static void validateNotifications(NotificationsConfig notifications, List<String> errors) {
+        if (notifications.slack() != null) {
+            checkUrl("notifications.slack.webhookUrl", notifications.slack().webhookUrl(), errors);
+        }
+        if (notifications.webhook() != null) {
+            checkUrl("notifications.webhook.url", notifications.webhook().url(), errors);
+        }
+    }
+
+    private static void checkUrl(String where, String url, List<String> errors) {
+        if (isBlank(url)) {
+            return; // an unset variable disables the channel
+        }
+        try {
+            java.net.URI uri = java.net.URI.create(url);
+            if (!"http".equalsIgnoreCase(uri.getScheme()) && !"https".equalsIgnoreCase(uri.getScheme())) {
+                errors.add(where + " must be an http(s) URL");
+            }
+        } catch (IllegalArgumentException e) {
+            errors.add(where + " is not a valid URL");
         }
     }
 
