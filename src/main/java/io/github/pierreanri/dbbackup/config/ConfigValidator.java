@@ -9,6 +9,7 @@ import java.util.regex.Pattern;
 
 import io.github.pierreanri.dbbackup.compression.Compression;
 import io.github.pierreanri.dbbackup.db.DatabaseType;
+import io.github.pierreanri.dbbackup.scheduling.CronSchedule;
 
 /**
  * Semantic validation of a parsed configuration. Returns human readable problems.
@@ -145,6 +146,12 @@ public final class ConfigValidator {
             }
             if (isBlank(schedule.cron())) {
                 errors.add(where + ".cron is required");
+            } else {
+                try {
+                    CronSchedule.parse(schedule.cron(), schedule.timezone());
+                } catch (IllegalArgumentException e) {
+                    errors.add(where + ": " + e.getMessage());
+                }
             }
             checkStorageRefs(where + ".storage", schedule.storage(), config.storage(), errors);
             checkCompression(where + ".compression", schedule.compression(), errors);

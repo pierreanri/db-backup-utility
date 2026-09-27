@@ -185,6 +185,9 @@ class ConfigLoaderTest {
                     cron: "@daily"
                     retention:
                       keepLast: 0
+                  - name: b
+                    database: lite
+                    cron: "0 25 * * *"
                 """;
         assertThatThrownBy(() -> loader(Map.of()).parse(yaml, null))
                 .isInstanceOf(ConfigException.class)
@@ -198,7 +201,8 @@ class ConfigLoaderTest {
                 .hasMessageContaining("schedules.a.database refers to unknown database 'missing'")
                 .hasMessageContaining("schedules.a.cron is required")
                 .hasMessageContaining("schedules.a: duplicate schedule name")
-                .hasMessageContaining("schedules.a.retention.keepLast must be at least 1");
+                .hasMessageContaining("schedules.a.retention.keepLast must be at least 1")
+                .hasMessageContaining("schedules.b: invalid cron expression '0 25 * * *'");
     }
 
     @Test

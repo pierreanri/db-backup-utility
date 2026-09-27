@@ -68,6 +68,16 @@ class CliTest {
                   mirror:
                     type: local
                     path: %s
+                schedules:
+                  - name: nightly
+                    database: app
+                    cron: "0 2 * * *"
+                    storage: [mirror]
+                    compression: bzip2
+                  - name: paused
+                    database: app
+                    cron: "@weekly"
+                    enabled: false
                 logging:
                   dir: %s
                 """.formatted(dbFile, tmp.resolve("missing.db"), tmp.resolve("primary"), tmp.resolve("mirror"),
@@ -206,7 +216,7 @@ class CliTest {
     @Test
     void configValidateAndInit() throws IOException {
         assertThat(run("config", "validate")).isZero();
-        assertThat(out).contains("is valid: 2 database(s), 2 storage target(s)");
+        assertThat(out).contains("is valid: 2 database(s), 2 storage target(s), 2 schedule(s)");
 
         Path generated = tmp.resolve("new/config.yml");
         assertThat(run("config", "init", generated.toString())).isZero();
@@ -229,6 +239,25 @@ class CliTest {
     void reportsUnknownDatabases() {
         assertThat(run("backup", "nope")).isEqualTo(1);
         assertThat(err).contains("Unknown database 'nope'").contains("Configured databases: app, broken");
+    }
+
+    @Test
+    void scheduleListRunAndCron() {
+        assertThat(run("schedule", "list")).isZero();
+        assertThat(out).contains("nightly").contains("0 2 * * *").contains("paused").contains("no");
+
+        assertThat(run("schedule", "run", "nightly")).isZero();
+        assertThat(out).contains("Backup app-").contains("completed");
+        assertThat(files(tmp.resolve("mirror/app"))).anyMatch(name -> name.endsWith(".db.bz2"));
+        assertThat(run("history")).isZero();
+        assertThat(out).contains("schedule:nightly");
+
+        assertThat(run("schedule", "cron", "--command", "dbbackup")).isZero();
+        assertThat(out).contains("0 2 * * * dbbackup --quiet schedule run nightly >> ")
+                .contains("cron.log").doesNotContain("paused");
+
+        assertThat(run("schedule", "run", "nope")).isEqualTo(1);
+        assertThat(err).contains("Unknown schedule 'nope'");
     }
 
     @Test

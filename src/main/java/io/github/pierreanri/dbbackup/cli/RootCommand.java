@@ -31,6 +31,7 @@ import picocli.CommandLine.Spec;
             ListCommand.class,
             PruneCommand.class,
             HistoryCommand.class,
+            ScheduleCommand.class,
             ConfigCommand.class,
             CommandLine.HelpCommand.class
         },
