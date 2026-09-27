@@ -5,12 +5,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+
+import org.bson.BsonTimestamp;
+
+import com.fasterxml.jackson.databind.JsonNode;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import io.github.pierreanri.dbbackup.DbBackupException;
 import io.github.pierreanri.dbbackup.config.DatabaseConfig;
+import io.github.pierreanri.dbbackup.util.Mappers;
 
 class MongoAdapterTest {
 
@@ -77,10 +83,78 @@ class MongoAdapterTest {
                 .doesNotContain("--drop", "--nsInclude=events.*");
     }
 
+    /** Adapter whose oplog window is fixed instead of read from a server. */
+    private MongoAdapter withOplog(int oldest, int newest) {
+        return new MongoAdapter(runner) {
+            @Override
+            protected BsonTimestamp[] oplogWindow(DatabaseConfig config) {
+                return new BsonTimestamp[] {new BsonTimestamp(oldest, 1), new BsonTimestamp(newest, 7)};
+            }
+        };
+    }
+
+    @Test
+    void fullBackupsOfIncrementalDatabasesRecordTheOplogPosition() {
+        DumpResult result = withOplog(100, 200).backup(BackupRequest.full(db.withIncremental(true)),
+                tmp.resolve("e.archive"));
+        assertThat(result.checkpoint()).containsEntry("oplogTime", "200").containsEntry("oplogIncrement", "7");
+        assertThat(adapter.backup(BackupRequest.full(db), tmp.resolve("f.archive")).checkpoint()).isEmpty();
+    }
+
+    @Test
+    void incrementalBackupsDumpTheOplogRange() {
+        Path out = tmp.resolve("i.oplog.tar");
+        DumpResult result = withOplog(100, 300).backupChanges(new ChangesRequest(db.withIncremental(true),
+                BackupType.INCREMENTAL, Map.of("oplogTime", "200", "oplogIncrement", "7"), null, "logical"), out);
+
+        assertThat(runner.lastCommand()).contains("--db=local", "--collection=oplog.rs")
+                .anyMatch(arg -> arg.startsWith("--queryFile="));
+        assertThat(result.checkpoint()).containsEntry("oplogTime", "300");
+        assertThat(out).exists();
+
+        assertThatThrownBy(() -> withOplog(250, 300).backupChanges(new ChangesRequest(db, BackupType.INCREMENTAL,
+                Map.of("oplogTime", "200", "oplogIncrement", "7"), null, "logical"), tmp.resolve("x")))
+                .isInstanceOf(DbBackupException.class)
+                .hasMessageContaining("oplog no longer goes back");
+    }
+
+    @Test
+    void buildsOplogQueries() throws Exception {
+        JsonNode query = Mappers.json().readTree(MongoAdapter.oplogQuery("sh.op", new BsonTimestamp(1, 2),
+                new BsonTimestamp(3, 4)));
+        assertThat(query.at("/ts/$gt/$timestamp/t").asInt()).isEqualTo(1);
+        assertThat(query.at("/ts/$lte/$timestamp/i").asInt()).isEqualTo(4);
+        assertThat(query.at("/$or/0/ns/$regex").asText()).isEqualTo("^sh\\.op\\.");
+        assertThat(query.at("/$or/1/o.applyOps.ns/$regex").asText()).isEqualTo("^sh\\.op\\.");
+
+        JsonNode all = Mappers.json().readTree(MongoAdapter.oplogQuery(null, new BsonTimestamp(1, 2),
+                new BsonTimestamp(3, 4)));
+        assertThat(all.at("/ns/$not/$regex").asText()).isEqualTo("^(local|config)\\.");
+    }
+
+    @Test
+    void incrementalChainsCannotBeRenamed() {
+        assertThatThrownBy(() -> adapter.restoreChain(new RestoreRequest(db, "events_copy", "events", List.of(),
+                false), tmp.resolve("full"), List.of(tmp.resolve("incr"))))
+                .isInstanceOf(DbBackupException.class)
+                .hasMessageContaining("original database name");
+    }
+
+    @Test
+    void removesTheDatabaseFromUrisForOplogDumps() {
+        assertThat(MongoAdapter.uriWithoutDatabase(db)).isNull();
+        DatabaseConfig uri = DatabaseConfig.of("x", DatabaseType.MONGODB).withUri("mongodb://u:p@h:1/app?tls=true");
+        assertThat(MongoAdapter.uriWithoutDatabase(uri)).isEqualTo("mongodb://u:p@h:1/?tls=true&authSource=app");
+        assertThat(MongoAdapter.uriWithoutDatabase(uri.withUri("mongodb://h/app?authSource=admin")))
+                .isEqualTo("mongodb://h/?authSource=admin");
+        assertThat(MongoAdapter.uriWithoutDatabase(uri.withUri("mongodb://h:1/"))).isEqualTo("mongodb://h:1/");
+    }
+
     @Test
     void buildsConnectionStrings() {
-        assertThat(MongoAdapter.connectionString(db)).isEqualTo("mongodb://root:p%40ss%3A%20word@mongo1:27017/?authSource=admin");
+        assertThat(MongoAdapter.connectionString(db))
+                .isEqualTo("mongodb://root:p%40ss%3A%20word@mongo1:27017/?directConnection=true&authSource=admin");
         assertThat(MongoAdapter.connectionString(DatabaseConfig.of("x", DatabaseType.MONGODB)))
-                .isEqualTo("mongodb://localhost:27017/");
+                .isEqualTo("mongodb://localhost:27017/?directConnection=true");
     }
 }
