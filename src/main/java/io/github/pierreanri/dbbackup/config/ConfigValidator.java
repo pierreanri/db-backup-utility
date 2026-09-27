@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import io.github.pierreanri.dbbackup.compression.Compression;
 import io.github.pierreanri.dbbackup.db.DatabaseType;
 
 /**
@@ -103,6 +104,7 @@ public final class ConfigValidator {
     private static void validateDefaults(AppConfig config, List<String> errors) {
         DefaultsConfig defaults = config.defaults();
         checkStorageRefs("defaults.storage", defaults.storage(), config.storage(), errors);
+        checkCompression("defaults.compression", defaults.compression(), errors);
         validateRetention("defaults.retention", defaults.retention(), errors);
         if (defaults.timeoutMinutes() != null && defaults.timeoutMinutes() < 1) {
             errors.add("defaults.timeoutMinutes must be positive");
@@ -135,6 +137,7 @@ public final class ConfigValidator {
                 errors.add(where + ".cron is required");
             }
             checkStorageRefs(where + ".storage", schedule.storage(), config.storage(), errors);
+            checkCompression(where + ".compression", schedule.compression(), errors);
             validateRetention(where + ".retention", schedule.retention(), errors);
         }
     }
@@ -158,6 +161,16 @@ public final class ConfigValidator {
         }
         if (retention.maxAgeDays() != null && retention.maxAgeDays() < 1) {
             errors.add(where + ".maxAgeDays must be at least 1");
+        }
+    }
+
+    private static void checkCompression(String where, String compression, List<String> errors) {
+        if (compression != null) {
+            try {
+                Compression.fromName(compression);
+            } catch (IllegalArgumentException e) {
+                errors.add(where + ": " + e.getMessage());
+            }
         }
     }
 

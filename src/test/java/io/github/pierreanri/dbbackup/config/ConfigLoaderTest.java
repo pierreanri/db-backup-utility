@@ -176,6 +176,7 @@ class ConfigLoaderTest {
                     container: c
                 defaults:
                   storage: [nowhere]
+                  compression: zip
                 schedules:
                   - name: a
                     database: missing
@@ -193,6 +194,7 @@ class ConfigLoaderTest {
                 .hasMessageContaining("storage.s3.bucket is required")
                 .hasMessageContaining("storage.az: set connectionString")
                 .hasMessageContaining("defaults.storage refers to unknown storage 'nowhere'")
+                .hasMessageContaining("defaults.compression: unsupported compression 'zip'")
                 .hasMessageContaining("schedules.a.database refers to unknown database 'missing'")
                 .hasMessageContaining("schedules.a.cron is required")
                 .hasMessageContaining("schedules.a: duplicate schedule name")
