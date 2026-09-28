@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# Copyright (c) 2026 pierreanri (https://github.com/pierreanri). All rights reserved.
-# No license is granted to use, copy, modify or distribute this file without permission.
 # Packages a release from target/dbbackup.jar (build it first with `mvn verify`).
 #
 #   dev/package-release.sh <version> <output-dir>
 #
 # Writes to <output-dir>:
 #   dbbackup.jar                the executable jar
-#   dbbackup-<version>.tar.gz   dbbackup-<version>/{bin,lib,config}, README.md, CHANGELOG.md and LICENSE
+#   dbbackup-<version>.tar.gz   dbbackup-<version>/{bin,lib,config}, README.md and CHANGELOG.md
 #   SHA256SUMS                  checksums of the two files above
 # and the release notes (the CHANGELOG.md section of the version plus installation steps) to
 # target/release-notes.md.
@@ -53,7 +51,7 @@ mkdir -p "$dist/bin" "$dist/lib" "$dist/config"
 cp "$root/bin/dbbackup" "$dist/bin/"
 cp "$jar" "$dist/lib/"
 cp "$root/config/dbbackup.example.yml" "$dist/config/"
-cp "$root/README.md" "$root/CHANGELOG.md" "$root/LICENSE" "$dist/"
+cp "$root/README.md" "$root/CHANGELOG.md" "$dist/"
 chmod 755 "$dist/bin/dbbackup"
 tar -C "$work" --owner=0 --group=0 --numeric-owner -czf "$out/dbbackup-$version.tar.gz" "dbbackup-$version"
 
